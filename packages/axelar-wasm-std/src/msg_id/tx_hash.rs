@@ -11,6 +11,7 @@ use super::Error;
 use crate::hash::Hash;
 use crate::nonempty;
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct HexTxHash {
     pub tx_hash: Hash,
 }
