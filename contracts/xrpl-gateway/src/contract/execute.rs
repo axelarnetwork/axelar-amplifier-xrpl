@@ -11,7 +11,7 @@ use router_api::{Address, ChainName, ChainNameRaw, CrossChainId, Message};
 use sha3::{Digest, Keccak256};
 use interchain_token_service::{self, TokenId};
 use xrpl_types::types::{scale_to_decimals, XRPLAccountId, XRPLCurrency, XRPLPaymentAmount, XRPLToken, XRPLTokenOrXrp, XRPL_ISSUED_TOKEN_DECIMALS, XRP_DECIMALS};
-use xrpl_types::msg::{CrossChainMessage, WithPayload, XRPLMessage, XRPLUserMessage};
+use xrpl_types::msg::{CrossChainMessage, XRPLMessage, XRPLUserMessageWithPayload};
 
 use crate::contract::Error;
 use crate::events::XRPLGatewayEvent;
@@ -48,7 +48,7 @@ pub fn route_incoming_messages(
     storage: &mut dyn Storage,
     config: &Config,
     verifier: &xrpl_voting_verifier::Client,
-    msgs_with_payload: Vec<WithPayload<XRPLUserMessage>>,
+    msgs_with_payload: Vec<XRPLUserMessageWithPayload>,
 ) -> Result<Response, Error> {
     let msgs_by_status = group_by_status(verifier, msgs_with_payload, &config.chain_name)?;
     let mut route_msgs = Vec::new();
@@ -127,12 +127,11 @@ fn load_token_id(storage: &dyn Storage, xrpl_multisig: XRPLAccountId, token: &XR
 pub fn translate_to_interchain_transfer(
     storage: &dyn Storage,
     config: &Config,
-    message_with_payload: &WithPayload<XRPLUserMessage>,
+    xrpl_user_message_with_payload: &XRPLUserMessageWithPayload,
 ) -> Result<InterchainTransfer, Error> {
-    let user_message = &message_with_payload.message;
-    let payload = &message_with_payload.payload;
+    let user_message = &xrpl_user_message_with_payload.message;
 
-    match payload {
+    match &xrpl_user_message_with_payload.payload {
         None => {
             ensure!(
                 user_message.payload_hash.is_none(),
@@ -205,7 +204,7 @@ pub fn translate_to_interchain_transfer(
                 source_address,
                 destination_address,
                 amount: amount.try_into().expect("amount cannot be zero"),
-                data: payload.clone(),
+                data: xrpl_user_message_with_payload.payload.clone(),
             },
         ),
     }.abi_encode();

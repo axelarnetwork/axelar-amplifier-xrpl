@@ -5,7 +5,7 @@ use router_api::{Address, CrossChainId, Message};
 use cosmwasm_std::testing::MockApi;
 use cosmwasm_std::{HexBinary, Uint128, Uint256};
 use integration_tests::contract::Contract;
-use xrpl_types::msg::{WithPayload, CrossChainMessage, XRPLMessage, XRPLProverMessage, XRPLUserMessage};
+use xrpl_types::msg::{CrossChainMessage, XRPLUserMessage, XRPLMessage, XRPLUserMessageWithPayload};
 use xrpl_types::types::{hash_signed_tx, TxHash, XRPLAccountId, XRPLCurrency, XRPLPaymentAmount, XRPLToken};
 use interchain_token_service;
 use ethers_core::utils::keccak256;
@@ -305,10 +305,10 @@ fn payment_from_xrpl_can_be_verified_and_routed_and_proven() {
 
     let xrpl_msg = XRPLMessage::UserMessage(xrpl_user_msg.clone());
 
-    let xrpl_msg_with_payload = WithPayload::new(
-        xrpl_user_msg,
-        payload.clone(),
-    );
+    let xrpl_msg_with_payload = XRPLUserMessageWithPayload {
+        message: xrpl_user_msg,
+        payload: payload.clone(),
+    };
 
     let interchain_transfer_msg = interchain_token_service::Message::InterchainTransfer(
         interchain_token_service::InterchainTransfer {
