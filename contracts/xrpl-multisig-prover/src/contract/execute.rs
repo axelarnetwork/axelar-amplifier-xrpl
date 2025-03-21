@@ -1,6 +1,5 @@
 use std::collections::HashSet;
 
-use axelar_wasm_std::msg_id::HexTxHash;
 use axelar_wasm_std::{address, permission_control, FnExt, MajorityThreshold, VerificationStatus};
 use cosmwasm_std::{
     wasm_execute, Addr, DepsMut, Env, HexBinary, QuerierWrapper, Response, Storage, SubMsg,
@@ -12,12 +11,13 @@ use router_api::{ChainNameRaw, CrossChainId};
 use sha3::{Digest, Keccak256};
 use xrpl_types::msg::{XRPLAddReservesMessage, XRPLMessage, XRPLProverMessage};
 use xrpl_types::types::{
-    canonicalize_token_amount, XRPLAccountId, XRPLPaymentAmount, XRPLTxStatus, XRP_MAX_UINT,
+    canonicalize_token_amount, XRPLAccountId, XRPLPaymentAmount, XRPLTxStatus, XRPLUnsignedTxToSign, XRP_MAX_UINT
 };
 
 use super::START_MULTISIG_REPLY_ID;
 use crate::error::ContractError;
 use crate::state::{self, Config, FEE_RESERVE, FEE_RESERVE_TOP_UP_COUNTED, TRUST_LINE};
+use crate::xrpl_serialize::XRPLSerialize;
 use crate::{axelar_verifiers, xrpl_multisig};
 
 pub fn construct_trust_set_proof(
@@ -38,11 +38,11 @@ pub fn construct_trust_set_proof(
         return Err(ContractError::TrustLineAlreadyExists(xrpl_token));
     }
 
-    let unsigned_tx_hash = xrpl_multisig::issue_trust_set(storage, config, xrpl_token)?;
+    let unsigned_tx = xrpl_multisig::issue_trust_set(storage, config, xrpl_token)?;
     Ok(Response::new().add_submessage(start_signing_session(
         storage,
         config,
-        unsigned_tx_hash,
+        unsigned_tx,
         self_address,
         None,
     )?))
@@ -58,11 +58,11 @@ pub fn construct_ticket_create_proof(
         return Err(ContractError::TicketCountThresholdNotReached);
     }
 
-    let unsigned_tx_hash = xrpl_multisig::issue_ticket_create(storage, config, ticket_count)?;
+    let unsigned_tx = xrpl_multisig::issue_ticket_create(storage, config, ticket_count)?;
     Ok(Response::new().add_submessage(start_signing_session(
         storage,
         config,
-        unsigned_tx_hash,
+        unsigned_tx,
         self_address,
         None,
     )?))
@@ -394,7 +394,7 @@ pub fn construct_payment_proof(
                     }
 
                     // TODO: Consider enforcing that data is None for simple payments.
-                    let unsigned_tx_hash = xrpl_multisig::issue_payment(
+                    let unsigned_tx = xrpl_multisig::issue_payment(
                         storage,
                         config,
                         destination_address,
@@ -406,7 +406,7 @@ pub fn construct_payment_proof(
                     Ok(Response::new().add_submessage(start_signing_session(
                         storage,
                         config,
-                        unsigned_tx_hash,
+                        unsigned_tx,
                         self_address,
                         None,
                     )?))
@@ -425,11 +425,11 @@ pub fn construct_payment_proof(
 fn start_signing_session(
     storage: &mut dyn Storage,
     config: &Config,
-    unsigned_tx_hash: HexTxHash,
+    unsigned_tx: XRPLUnsignedTxToSign,
     self_address: Addr,
     verifier_set_id: Option<String>,
 ) -> Result<SubMsg<cosmwasm_std::Empty>, ContractError> {
-    state::REPLY_UNSIGNED_TX_HASH.save(storage, &unsigned_tx_hash)?;
+    state::REPLY_UNSIGNED_TX_HASH.save(storage, &unsigned_tx.unsigned_tx_hash)?;
 
     let verifier_set_id = match verifier_set_id {
         Some(id) => id,
@@ -445,7 +445,7 @@ fn start_signing_session(
 
     let start_sig_msg: multisig::msg::ExecuteMsg = multisig::msg::ExecuteMsg::StartSigningSession {
         verifier_set_id,
-        msg: unsigned_tx_hash.tx_hash.into(),
+        msg: unsigned_tx.xrpl_serialize()?.into(),
         chain_name: config.chain_name.clone(),
         sig_verifier: Some(self_address.into()),
     };
@@ -492,14 +492,14 @@ pub fn update_verifier_set(
             save_next_verifier_set(storage, &new_verifier_set)?;
 
             let verifier_union_set = all_active_verifiers(storage)?;
-            let unsigned_tx_hash =
+            let unsigned_tx =
                 xrpl_multisig::issue_signer_list_set(storage, &config, new_verifier_set.clone())?;
 
             Ok(Response::new()
                 .add_submessage(start_signing_session(
                     storage,
                     &config,
-                    unsigned_tx_hash,
+                    unsigned_tx,
                     env.contract.address,
                     Some(multisig::verifier_set::VerifierSet::try_from(cur_verifier_set)?.id()),
                 )?)

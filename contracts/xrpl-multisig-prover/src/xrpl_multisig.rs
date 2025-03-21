@@ -4,7 +4,7 @@ use router_api::CrossChainId;
 use xrpl_types::types::{
     XRPLAccountId, XRPLCrossCurrencyOptions, XRPLPaymentAmount, XRPLPaymentTx, XRPLSequence,
     XRPLSignerEntry, XRPLSignerListSetTx, XRPLTicketCreateTx, XRPLToken, XRPLTrustSetTx,
-    XRPLTxStatus, XRPLUnsignedTx,
+    XRPLTxStatus, XRPLUnsignedTx, XRPLUnsignedTxToSign,
 };
 
 use crate::axelar_verifiers::VerifierSet;
@@ -24,7 +24,7 @@ fn issue_tx(
     storage: &mut dyn Storage,
     unsigned_tx: XRPLUnsignedTx,
     original_cc_id: Option<&CrossChainId>,
-) -> Result<HexTxHash, ContractError> {
+) -> Result<XRPLUnsignedTxToSign, ContractError> {
     let unsigned_tx_hash = xrpl_types::types::hash_unsigned_tx(&unsigned_tx)?;
 
     let tx_info = TxInfo {
@@ -39,7 +39,7 @@ fn issue_tx(
         LATEST_SEQUENTIAL_UNSIGNED_TX_HASH.save(storage, &unsigned_tx_hash.tx_hash)?;
     }
 
-    Ok(unsigned_tx_hash)
+    Ok(XRPLUnsignedTxToSign { unsigned_tx, unsigned_tx_hash, cc_id: original_cc_id.cloned() })
 }
 
 fn tx_fee(
@@ -84,7 +84,7 @@ pub fn issue_payment(
     amount: &XRPLPaymentAmount,
     cc_id: &CrossChainId,
     cross_currency: Option<&XRPLCrossCurrencyOptions>,
-) -> Result<HexTxHash, ContractError> {
+) -> Result<XRPLUnsignedTxToSign, ContractError> {
     let ticket_number = assign_ticket_number(storage, cc_id)?;
     let fee = tx_fee(storage, config, ticket_number)?;
 
@@ -104,7 +104,7 @@ pub fn issue_ticket_create(
     storage: &mut dyn Storage,
     config: &Config,
     ticket_count: u32,
-) -> Result<HexTxHash, ContractError> {
+) -> Result<XRPLUnsignedTxToSign, ContractError> {
     let sequence_number = next_sequence_number(storage)?;
     let fee = tx_fee(storage, config, sequence_number)?;
 
@@ -122,7 +122,7 @@ pub fn issue_trust_set(
     storage: &mut dyn Storage,
     config: &Config,
     xrpl_token: XRPLToken,
-) -> Result<HexTxHash, ContractError> {
+) -> Result<XRPLUnsignedTxToSign, ContractError> {
     let sequence_number = next_sequence_number(storage)?;
     let fee = tx_fee(storage, config, sequence_number)?;
 
@@ -140,7 +140,7 @@ pub fn issue_signer_list_set(
     storage: &mut dyn Storage,
     config: &Config,
     verifier_set: VerifierSet,
-) -> Result<HexTxHash, ContractError> {
+) -> Result<XRPLUnsignedTxToSign, ContractError> {
     let sequence_number = next_sequence_number(storage)?;
     let fee = tx_fee(storage, config, sequence_number)?;
 

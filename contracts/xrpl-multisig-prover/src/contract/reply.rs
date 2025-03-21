@@ -1,6 +1,5 @@
-use cosmwasm_std::{from_json, DepsMut, HexBinary, Reply, Response, Uint64};
+use cosmwasm_std::{from_json, DepsMut, Reply, Response, Uint64};
 use cw_utils::{parse_execute_response_data, MsgExecuteContractResponse, ParseReplyError};
-use xrpl_types::types::XRPLUnsignedTxToSign;
 
 use crate::error::ContractError;
 use crate::events::Event;
@@ -8,7 +7,6 @@ use crate::state::{
     MultisigSession, CONFIG, CROSS_CHAIN_ID_TO_MULTISIG_SESSION,
     MULTISIG_SESSION_ID_TO_UNSIGNED_TX_HASH, REPLY_UNSIGNED_TX_HASH, UNSIGNED_TX_HASH_TO_TX_INFO,
 };
-use crate::xrpl_serialize::XRPLSerialize;
 
 pub fn start_multisig_reply(deps: DepsMut, reply: Reply) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
@@ -78,27 +76,7 @@ pub fn start_multisig_reply(deps: DepsMut, reply: Reply) -> Result<Response, Con
                     multisig_session_id,
                     message_ids: tx_info.original_cc_id.clone().map(|cc_id| vec![cc_id]),
                 })
-                .add_event(
-                    cosmwasm_std::Event::new("xrpl_signing_started")
-                        .add_attributes(
-                            signing_started_attributes
-                                .into_iter()
-                                .filter(|a| !a.key.starts_with('_') && a.key != "msg")
-                                .collect::<Vec<_>>(),
-                        )
-                        .add_attribute(
-                            "unsigned_tx",
-                            HexBinary::from(
-                                XRPLUnsignedTxToSign {
-                                    unsigned_tx: tx_info.unsigned_tx,
-                                    unsigned_tx_hash,
-                                    cc_id: tx_info.original_cc_id,
-                                }
-                                .xrpl_serialize()?,
-                            )
-                            .to_hex(),
-                        ),
-                ))
+            )
         }
         Ok(MsgExecuteContractResponse { data: None }) => Err(ContractError::InvalidContractReply {
             reason: "no data".to_string(),
