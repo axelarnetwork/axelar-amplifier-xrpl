@@ -255,19 +255,6 @@ pub enum XRPLPaymentAmount {
     ),
 }
 
-impl PartialOrd for XRPLPaymentAmount {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        match (self, other) {
-            (XRPLPaymentAmount::Drops(a), XRPLPaymentAmount::Drops(b)) => a.partial_cmp(b),
-            (
-                XRPLPaymentAmount::Issued(token_a, amount_a),
-                XRPLPaymentAmount::Issued(token_b, amount_b),
-            ) if token_a == token_b => amount_a.partial_cmp(amount_b),
-            _ => None,
-        }
-    }
-}
-
 impl XRPLPaymentAmount {
     pub fn hash(&self) -> [u8; 32] {
         let mut hasher = Keccak256::new();
@@ -319,46 +306,6 @@ impl fmt::Display for XRPLPaymentAmount {
             XRPLPaymentAmount::Issued(token, amount) => {
                 write!(f, "TokenAmount({:?},{:?})", token, amount)
             }
-        }
-    }
-}
-
-impl Add for XRPLPaymentAmount {
-    type Output = Result<XRPLPaymentAmount, XRPLError>;
-
-    fn add(self, rhs: XRPLPaymentAmount) -> Self::Output {
-        match (self, rhs) {
-            (XRPLPaymentAmount::Drops(x), XRPLPaymentAmount::Drops(y)) => x
-                .checked_add(y)
-                .map(XRPLPaymentAmount::Drops)
-                .ok_or(XRPLError::AdditionOverflow),
-            (
-                XRPLPaymentAmount::Issued(token_x, amount_x),
-                XRPLPaymentAmount::Issued(token_y, amount_y),
-            ) if token_x == token_y => {
-                Ok(XRPLPaymentAmount::Issued(token_x, amount_x.add(amount_y)?))
-            }
-            _ => Err(XRPLError::IncompatibleTokens),
-        }
-    }
-}
-
-impl Sub for XRPLPaymentAmount {
-    type Output = Result<XRPLPaymentAmount, XRPLError>;
-
-    fn sub(self, rhs: XRPLPaymentAmount) -> Self::Output {
-        match (self, rhs) {
-            (XRPLPaymentAmount::Drops(x), XRPLPaymentAmount::Drops(y)) => x
-                .checked_sub(y)
-                .map(XRPLPaymentAmount::Drops)
-                .ok_or(XRPLError::SubtractionUnderflow),
-            (
-                XRPLPaymentAmount::Issued(token_x, amount_x),
-                XRPLPaymentAmount::Issued(token_y, amount_y),
-            ) if token_x == token_y => {
-                Ok(XRPLPaymentAmount::Issued(token_x, amount_x.sub(amount_y)?))
-            }
-            _ => Err(XRPLError::IncompatibleTokens),
         }
     }
 }
@@ -937,82 +884,6 @@ impl XRPLTokenAmount {
     }
 }
 
-impl PartialOrd for XRPLTokenAmount {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        // If either amount is zero, we can compare directly
-        if self.mantissa == 0 {
-            return if other.mantissa == 0 {
-                Some(std::cmp::Ordering::Equal)
-            } else {
-                Some(std::cmp::Ordering::Less)
-            };
-        }
-        if other.mantissa == 0 {
-            return Some(std::cmp::Ordering::Greater);
-        }
-
-        //  Determine the smallest exponent.
-        //  We'll scale each mantissa so that BOTH numbers become
-        //  conceptually represented at this min_exp.
-        //  Example:
-        //     self = (mantissa=1, exponent=-2) => 0.01
-        //     other = (mantissa=1, exponent=0) => 1.0
-        //     min_exp = -2
-        //  We will scale the mantissa of the side that has a bigger exponent
-        //  so that it effectively also uses exponent = -2.
-        let min_exp = self.exponent.min(other.exponent);
-
-        //  Calculate how much each side needs to be scaled.
-        //  scale_self = (min_exp - self.exponent)
-        //  scale_other = (min_exp - other.exponent)
-        //
-        //  If self.exponent is already equal to min_exp, scale_self = 0
-        //    => no multiplication.
-        //  If self.exponent > min_exp, scale_self will be a positive number
-        //    => we multiply self.mantissa by 10^(scale_self).
-        let scale_self = u32::try_from(
-            self.exponent
-                .checked_sub(min_exp)
-                .expect("scale_self underflow"),
-        )
-        .expect("scale_self too large for u32");
-        let scale_other = u32::try_from(
-            other
-                .exponent
-                .checked_sub(min_exp)
-                .expect("scale_other underflow"),
-        )
-        .expect("scale_other too large for u32");
-
-        let ten = 10u64;
-        //  "Scale up" each mantissa where needed. We use `checked_mul` to safely
-        //  detect overflow. If we can't multiply (overflow), assume the scaled
-        //  number is so large that it dominates the comparison.
-        let adjusted_self_mantissa = match self.mantissa.checked_mul(ten.pow(scale_self)) {
-            Some(val) => val,
-            None => {
-                // If this side overflows when scaling, it means it was originally
-                // the side with the larger exponent (less negative) and got multiplied
-                // by a large power of 10. That indicates it's certainly bigger
-                // in actual numeric value.
-                return Some(std::cmp::Ordering::Greater);
-            }
-        };
-
-        let adjusted_other_mantissa = match other.mantissa.checked_mul(ten.pow(scale_other)) {
-            Some(val) => val,
-            None => {
-                // Same idea: if the other side overflows when scaling,
-                // it effectively dwarfs the 'self' side numerically,
-                // so we say self < other.
-                return Some(std::cmp::Ordering::Less);
-            }
-        };
-
-        Some(adjusted_self_mantissa.cmp(&adjusted_other_mantissa))
-    }
-}
-
 impl std::str::FromStr for XRPLTokenAmount {
     type Err = XRPLError;
 
@@ -1094,98 +965,6 @@ impl TryFrom<String> for XRPLTokenAmount {
 
     fn try_from(s: String) -> Result<Self, XRPLError> {
         XRPLTokenAmount::from_str(s.as_str())
-    }
-}
-
-impl Add for XRPLTokenAmount {
-    type Output = Result<XRPLTokenAmount, XRPLError>;
-
-    fn add(self, rhs: XRPLTokenAmount) -> Self::Output {
-        let common_exponent = min(self.exponent, rhs.exponent);
-        let ten = 10u64;
-
-        let left_mantissa = self
-            .mantissa
-            .checked_mul(
-                ten.pow(
-                    u32::try_from(
-                        self.exponent
-                            .checked_sub(common_exponent)
-                            .ok_or(XRPLError::SubtractionUnderflow)?,
-                    )
-                    .map_err(|_| XRPLError::InvalidExponent)?,
-                ),
-            )
-            .ok_or(XRPLError::MultiplicationOverflow)?;
-
-        let right_mantissa = rhs
-            .mantissa
-            .checked_mul(
-                ten.pow(
-                    u32::try_from(
-                        rhs.exponent
-                            .checked_sub(common_exponent)
-                            .ok_or(XRPLError::SubtractionUnderflow)?,
-                    )
-                    .map_err(|_| XRPLError::InvalidExponent)?,
-                ),
-            )
-            .ok_or(XRPLError::MultiplicationOverflow)?;
-
-        let result_mantissa = left_mantissa
-            .checked_add(right_mantissa)
-            .ok_or(XRPLError::AdditionOverflow)?;
-
-        let (mantissa, exponent) = canonicalize_mantissa(result_mantissa.into(), common_exponent)?;
-        Ok(XRPLTokenAmount::new(mantissa, exponent))
-    }
-}
-
-impl Sub for XRPLTokenAmount {
-    type Output = Result<XRPLTokenAmount, XRPLError>;
-
-    fn sub(self, rhs: XRPLTokenAmount) -> Self::Output {
-        let common_exponent = min(self.exponent, rhs.exponent);
-        let ten = 10u64;
-
-        let left_mantissa = self
-            .mantissa
-            .checked_mul(
-                ten.pow(
-                    u32::try_from(
-                        self.exponent
-                            .checked_sub(common_exponent)
-                            .ok_or(XRPLError::SubtractionUnderflow)?,
-                    )
-                    .map_err(|_| XRPLError::InvalidExponent)?,
-                ),
-            )
-            .ok_or(XRPLError::MultiplicationOverflow)?;
-
-        let right_mantissa = rhs
-            .mantissa
-            .checked_mul(
-                ten.pow(
-                    u32::try_from(
-                        rhs.exponent
-                            .checked_sub(common_exponent)
-                            .ok_or(XRPLError::SubtractionUnderflow)?,
-                    )
-                    .map_err(|_| XRPLError::InvalidExponent)?,
-                ),
-            )
-            .ok_or(XRPLError::MultiplicationOverflow)?;
-
-        if left_mantissa < right_mantissa {
-            return Err(XRPLError::Underflow);
-        }
-
-        let result_mantissa = left_mantissa
-            .checked_sub(right_mantissa)
-            .ok_or(XRPLError::SubtractionUnderflow)?;
-
-        let (mantissa, exponent) = canonicalize_mantissa(result_mantissa.into(), common_exponent)?;
-        Ok(XRPLTokenAmount::new(mantissa, exponent))
     }
 }
 
