@@ -7,6 +7,7 @@ use error_stack::{bail, Result, ResultExt};
 use starknet_checked_felt::CheckedFelt;
 use stellar_xdr::curr::ScAddress;
 use sui_types::SuiAddress;
+use ton_smart_contract_address::UserFriendlyAddress;
 
 #[derive(thiserror::Error)]
 #[cw_serde]
@@ -21,6 +22,7 @@ pub enum AddressFormat {
     Sui,
     Stellar,
     Starknet,
+    Ton
 }
 
 pub fn validate_address(address: &str, format: &AddressFormat) -> Result<(), Error> {
@@ -43,6 +45,10 @@ pub fn validate_address(address: &str, format: &AddressFormat) -> Result<(), Err
         AddressFormat::Starknet => {
             CheckedFelt::from_str(address)
                 .change_context(Error::InvalidAddress(address.to_string()))?;
+        }
+        AddressFormat::Ton => {
+            UserFriendlyAddress::from_user_friendly_str(address)
+                .map_err(|_| Error::InvalidAddress(address.to_string()))?;
         }
     }
 

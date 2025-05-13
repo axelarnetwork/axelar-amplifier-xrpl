@@ -53,6 +53,7 @@ stellar-xdr = { workspace = true }
 strum = { workspace = true }
 sui-types = { workspace = true }
 thiserror = { workspace = true }
+ton_smart_contract_address = "0.0.4"
 valuable = { version = "0.1.0", features = ["derive"] }
 
 [dev-dependencies]
