@@ -101,9 +101,9 @@ impl TryFrom<String> for Address {
     type Error = Report<Error>;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        if value.contains(FIELD_DELIMITER) {
-            return Err(Report::new(Error::InvalidAddress));
-        }
+        // if value.contains(FIELD_DELIMITER) {
+        //     return Err(Report::new(Error::InvalidAddress));
+        // }
 
         Ok(Address(
             value

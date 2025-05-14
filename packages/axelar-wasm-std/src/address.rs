@@ -22,7 +22,7 @@ pub enum AddressFormat {
     Sui,
     Stellar,
     Starknet,
-    Ton
+    Ton,
 }
 
 pub fn validate_address(address: &str, format: &AddressFormat) -> Result<(), Error> {

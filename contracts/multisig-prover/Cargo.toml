@@ -52,6 +52,7 @@ k256 = { workspace = true }
 msgs-derive = { workspace = true }
 multisig = { workspace = true, features = ["library"] }
 multisig-prover-api = { workspace = true }
+num-bigint = "0.4.6"
 report = { workspace = true }
 router-api = { workspace = true }
 semver = { workspace = true }
@@ -63,6 +64,7 @@ stellar = { workspace = true }
 stellar-xdr = { workspace = true }
 sui-gateway = { workspace = true }
 thiserror = { workspace = true }
+tonlib-core = "0.25.4"
 voting-verifier = { workspace = true, features = ["library"] }
 
 [dev-dependencies]
