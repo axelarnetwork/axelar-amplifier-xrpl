@@ -316,31 +316,56 @@ fn compute_verifier_set_hash(verifier_set: &VerifierSet) -> Hash {
     current_hash.into()
 }
 
+fn compute_approve_messages_hash(
+    msgs: &Vec<Message>,
+    verifier_set: &VerifierSet,
+    domain_separator: &Hash,
+) -> Hash {
+    let data_hash = compute_data_hash(msgs);
+    let signers_hash = compute_verifier_set_hash(verifier_set);
+
+    let mut result = Vec::new();
+    result.extend(data_hash.to_vec());
+    result.extend(signers_hash.to_vec());
+    result.extend(domain_separator.to_vec());
+
+    Keccak256::digest(result).into()
+}
+
+fn compute_signer_rotation_hash(
+    candidate_set: &VerifierSet,
+    current_set: &VerifierSet,
+    domain_separator: &Hash,
+) -> Hash {
+    let candidate_set_hash = compute_verifier_set_hash(candidate_set);
+    let current_set_hash = compute_verifier_set_hash(current_set);
+
+    let mut result = Vec::new();
+
+    result.extend(candidate_set_hash.to_vec());
+    result.extend(current_set_hash.to_vec());
+    result.extend(domain_separator);
+
+    Keccak256::digest(result).into()
+}
+
 pub fn payload_digest(
     domain_separator: &Hash,
-    verifier_set: &VerifierSet,
+    current_set: &VerifierSet,
     payload: &Payload,
 ) -> Result<Hash, ContractError> {
     let hash = match payload {
         Payload::Messages(msgs) => {
-            let data_hash = compute_data_hash(msgs);
-            let signers_hash = compute_verifier_set_hash(verifier_set);
-
-            let mut final_hash = Vec::new();
-
-            final_hash.extend(data_hash.to_vec());
-            final_hash.extend(signers_hash.to_vec());
-            final_hash.extend(domain_separator.to_vec());
-
-            Keccak256::digest(final_hash).into()
+            compute_approve_messages_hash(msgs, current_set, domain_separator)
         }
-        Payload::VerifierSet(set) => {
-            todo!()
+        Payload::VerifierSet(candidate_set) => {
+            compute_signer_rotation_hash(candidate_set, current_set, domain_separator)
         }
     };
 
     Ok(hash)
 }
+
 fn vec_to_hex(vec: Vec<u8>) -> String {
     vec.iter().map(|byte| format!("{:02x}", byte)).collect()
 }
@@ -372,7 +397,7 @@ mod tests {
     use multisig::verifier_set::VerifierSet;
     use router_api::{CrossChainId, Message};
 
-    use super::{encode_execute_data, encode_execute_data, payload_digest};
+    use super::{encode_execute_data, payload_digest};
     use crate::encoding::ton::vec_to_hex;
     use crate::test::test_data::domain_separator;
     use crate::Payload;
@@ -397,7 +422,7 @@ mod tests {
     }
 
     #[test]
-    fn should_compute_correct_payload_hash() {
+    fn should_compute_correct_approve_messages_hash() {
         let domain_separator = ton_domain_separator();
         let verifier_set = curr_ton_verifier_set();
         let payload = Payload::Messages(ton_messages());
@@ -407,6 +432,23 @@ mod tests {
         assert_eq!(
             vec_to_hex(payload_digest.to_vec()),
             "e8214b369d9f4b11f4f0f7d2c921b56e9a34033e8f7f8599abe819b3cb7de2e0"
+        );
+    }
+
+    #[test]
+    fn should_compute_correct_signer_rotation() {
+        let domain_separator = ton_domain_separator();
+        let verifier_set = curr_ton_verifier_set();
+
+        let mut new_ton_set = curr_ton_verifier_set();
+        new_ton_set.created_at += 1;
+        let payload = Payload::VerifierSet(new_ton_set);
+
+        let payload_digest = payload_digest(&domain_separator, &verifier_set, &payload).unwrap();
+
+        assert_eq!(
+            vec_to_hex(payload_digest.to_vec()),
+            "6fda89e65b639ef93667446d1b083a1038be0d3f004db53886fd26b3970b98ba"
         );
     }
 
