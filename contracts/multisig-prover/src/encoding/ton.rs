@@ -19,7 +19,19 @@ use crate::error::ContractError;
 use crate::payload::Payload;
 
 const OP_APPROVE_MESSAGES: usize = 0x00000028;
+const OP_START_SIGNER_ROTATION: usize = 0x00000014;
 const BYTES_PER_CELL: usize = 96;
+const THRESHOLD_BITS: usize = 128;
+const NONCE_BITS: usize = 256;
+const WEIGHTED_SIGNER_BYTES: usize = 112;
+const DICTIONARY_KEY_BITS: usize = 16;
+const OPCODE_BITS: usize = 32;
+const PAYLOAD_HASH_BITS: usize = 256;
+const BITS_PER_BYTE: usize = 8;
+const SIGNATURE_BITS: usize = 512;
+const SIGNATURE_BYTES: usize = SIGNATURE_BITS / BITS_PER_BYTE;
+const SIGNER_PUBKEY_BITS: usize = 256;
+const SIGNER_PUBKEY_BYTES: usize = SIGNER_PUBKEY_BITS / BITS_PER_BYTE;
 
 fn build_cell_chain(start_index: usize, buffer: Vec<u8>) -> Result<Cell, ContractError> {
     let mut builder = CellBuilder::new();
@@ -28,7 +40,7 @@ fn build_cell_chain(start_index: usize, buffer: Vec<u8>) -> Result<Cell, Contrac
     // Store bytes in the current cell
     for i in start_index..end_index {
         builder
-            .store_uint(8, &BigUint::from(buffer[i]))
+            .store_uint(BITS_PER_BYTE, &BigUint::from(buffer[i]))
             .map_err(|_| ContractError::TonError)?;
     }
 
@@ -67,11 +79,11 @@ impl TonProof {
             .map(|(i, signer)| {
                 let pub_key_bytes = match &signer.pub_key {
                     PublicKey::Ed25519(key) => key.as_slice().try_into().unwrap(),
-                    _ => todo!(),
+                    _ => panic!("Only Ed25519 pubkeys are supported in Ton"),
                 };
                 let signature_bytes = match &signatures[i].signature {
                     Signature::Ed25519(sig) => sig.as_slice().try_into().unwrap(),
-                    _ => todo!(),
+                    _ => panic!("Only Ed25519 signatures are supported in Ton"),
                 };
                 (
                     i as u16,
@@ -88,20 +100,18 @@ impl TonProof {
     }
 
     pub fn to_cell(&self) -> Result<Cell, ContractError> {
-        let key_len_bits = 16;
         let mut builder = CellBuilder::new();
-
         let nonce = BigUint::from(self.nonce);
         let threshold = BigUint::from(self.threshold);
 
         builder
-            .store_dict(key_len_bits, val_writer_buffer, self.dict.clone())
+            .store_dict(DICTIONARY_KEY_BITS, val_writer_buffer, self.dict.clone())
             .map_err(|_| ContractError::TonError)?;
         builder
-            .store_uint(128, &threshold)
+            .store_uint(THRESHOLD_BITS, &threshold)
             .map_err(|_| ContractError::TonError)?;
         builder
-            .store_uint(256, &nonce)
+            .store_uint(NONCE_BITS, &nonce)
             .map_err(|_| ContractError::TonError)?;
         let dict_cell = builder.build().map_err(|_| ContractError::TonError)?;
 
@@ -111,13 +121,17 @@ impl TonProof {
 
 #[derive(Clone, Debug, Copy)]
 struct WeightedSigner {
-    signer: [u8; 32],
+    signer: [u8; SIGNER_PUBKEY_BYTES],
     weight: u128,
-    signature: [u8; 64],
+    signature: [u8; SIGNATURE_BYTES],
 }
 
 impl WeightedSigner {
-    pub fn new(signer: [u8; 32], weight: u128, signature: [u8; 64]) -> Self {
+    pub fn new(
+        signer: [u8; SIGNER_PUBKEY_BYTES],
+        weight: u128,
+        signature: [u8; SIGNATURE_BYTES],
+    ) -> Self {
         WeightedSigner {
             signer,
             weight,
@@ -130,7 +144,7 @@ impl WeightedSigner {
         bytes.extend_from_slice(&self.signer);
         bytes.extend_from_slice(&self.weight.to_be_bytes());
         bytes.extend_from_slice(&self.signature);
-        assert!(bytes.len() == 112);
+        assert!(bytes.len() == WEIGHTED_SIGNER_BYTES);
         bytes
     }
 }
@@ -169,12 +183,13 @@ fn message_to_cell(msg: Message) -> std::result::Result<Cell, TonCellError> {
         .map_err(|_| TonCellError::InternalError("".to_owned()))?
         .hash_part
         .to_vec();
-
     let ton_address_hash_buffer_cell = buffer_to_cell(ton_address_hash_buffer)
         .map_err(|_| TonCellError::InternalError("".to_owned()))?;
-
     builder.store_reference(&Arc::new(ton_address_hash_buffer_cell.clone()))?; // problem this should be the Ton address hash!!! .storeRef(bufferToCell(msg.executableAddress.hash))
-    builder.store_uint(256, &BigUint::from_bytes_be(&msg.payload_hash))?;
+    builder.store_uint(
+        PAYLOAD_HASH_BITS,
+        &BigUint::from_bytes_be(&msg.payload_hash),
+    )?;
 
     let res = builder.build()?;
     Ok(res)
@@ -205,11 +220,10 @@ impl TonMessages {
     }
 
     pub fn to_cell(&self) -> Result<Cell, ContractError> {
-        let key_len_bits = 16;
         let mut builder = CellBuilder::new();
 
         builder
-            .store_dict(key_len_bits, val_writer_cell, self.dict.clone())
+            .store_dict(DICTIONARY_KEY_BITS, val_writer_cell, self.dict.clone())
             .map_err(|_| ContractError::TonError)?;
         let dict_cell = builder.build().map_err(|_| ContractError::TonError)?;
 
@@ -232,7 +246,7 @@ fn build_approve_messages_body(
 
     let mut builder = CellBuilder::new();
     builder
-        .store_uint(32, &BigUint::from(OP_APPROVE_MESSAGES))
+        .store_uint(OPCODE_BITS, &BigUint::from(OP_APPROVE_MESSAGES))
         .map_err(|_| ContractError::TonError)?;
     builder
         .store_reference(&Arc::new(proof))
@@ -244,8 +258,28 @@ fn build_approve_messages_body(
     Ok(builder.build().map_err(|_| ContractError::TonError)?)
 }
 
-fn build_signer_rotation_body(set: &VerifierSet) -> Result<Cell, ContractError> {
-    todo!()
+fn build_signer_rotation_body(
+    candidate_set: &VerifierSet,
+    current_set: &VerifierSet,
+    signatures: Vec<SignerWithSig>,
+) -> Result<Cell, ContractError> {
+    let proof = construct_proof(current_set, signatures)?;
+    let candidate_config_hash = compute_verifier_set_hash(candidate_set);
+    let candidate_config_hash_cell =
+        buffer_to_cell(candidate_config_hash.to_vec()).map_err(|_| ContractError::TonError)?;
+
+    let mut builder = CellBuilder::new();
+    builder
+        .store_uint(OPCODE_BITS, &BigUint::from(OP_START_SIGNER_ROTATION))
+        .map_err(|_| ContractError::TonError)?;
+    builder
+        .store_reference(&Arc::new(candidate_config_hash_cell))
+        .map_err(|_| ContractError::TonError)?;
+    builder
+        .store_reference(&Arc::new(proof))
+        .map_err(|_| ContractError::TonError)?;
+
+    Ok(builder.build().map_err(|_| ContractError::TonError)?)
 }
 
 fn compute_data_hash(msgs: &Vec<Message>) -> Hash {
@@ -283,9 +317,9 @@ fn compute_verifier_set_hash(verifier_set: &VerifierSet) -> Hash {
     data.extend(verifier_set.threshold.to_be_bytes());
 
     // Convert nonce to 256-bit (32 bytes)
-    let mut nonce_bytes = [0u8; 32];
+    let mut nonce_bytes = [0u8; NONCE_BITS / 8];
     let nonce_be = verifier_set.created_at.to_be_bytes();
-    nonce_bytes[32 - nonce_be.len()..].copy_from_slice(&nonce_be);
+    nonce_bytes[NONCE_BITS / 8 - nonce_be.len()..].copy_from_slice(&nonce_be);
     data.extend(nonce_bytes);
 
     let mut current_hash = Keccak256::digest(data);
@@ -366,10 +400,6 @@ pub fn payload_digest(
     Ok(hash)
 }
 
-fn vec_to_hex(vec: Vec<u8>) -> String {
-    vec.iter().map(|byte| format!("{:02x}", byte)).collect()
-}
-
 pub fn encode_execute_data(
     verifier_set: &VerifierSet,
     signatures: Vec<SignerWithSig>,
@@ -377,7 +407,9 @@ pub fn encode_execute_data(
 ) -> Result<HexBinary, ContractError> {
     let cell_payload = match payload {
         Payload::Messages(msgs) => build_approve_messages_body(msgs, verifier_set, signatures)?,
-        Payload::VerifierSet(set) => build_signer_rotation_body(set)?,
+        Payload::VerifierSet(candidate_set) => {
+            build_signer_rotation_body(candidate_set, verifier_set, signatures)?
+        }
     };
 
     let cell_hex = cell_payload
@@ -398,8 +430,6 @@ mod tests {
     use router_api::{CrossChainId, Message};
 
     use super::{encode_execute_data, payload_digest};
-    use crate::encoding::ton::vec_to_hex;
-    use crate::test::test_data::domain_separator;
     use crate::Payload;
 
     #[test]
@@ -419,6 +449,28 @@ mod tests {
             encode_execute_data(&verifier_set, signers_with_sigs, &payload).unwrap();
 
         assert_eq!(encoded_execute_data.to_string(), "b5ee9c7241020e0100026c0002080000002801020161800000000000000000000000000000018000000000000000000000000000000000000000000000000000000000000000c0030101c0040202ce05060102d007020120080900e1479b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad04966400000000000000000000000000000001d3ab834fc46a5eaccdfdf36b28cc1df759b26d98520303fe5643ee1480cb17f65758314043e9734922c200f14b236a898618679d3a0cc2a203ee094f470efa0f8044056570de287d73cd1cb6092bb8fdee6173974955fdef345ae579ee9f475ea74320a0b0c0d00e100e841effcf3842f875c374639d2f02659f9358c26e94357c777219904954c6e000000000000000000000000000000005b7386cbc2938532075fb490c9b45b2ce2965b74d0c63c30a3e101073be14dccc5d43189ce263763a8f5852ad44072ac9facdbc02503036f73c8446f22f5e7c3e000e110f37008f48b57e7841f4681a4d15f4d747443adf4871c8464bd5bd779019974c000000000000000000000000000000072f69484f8e8c05cbee22d00e30e7488ef8a6f1195a8db101e3b1faaabe393925b5ca82e8ebc78754fc766235efda2ada5a1952fc0c6e457e9980917026a0701e000883078666638323263383838303738353966663232366235386532346632343937346137306630346239343432353031616533386664363635623363363866333833342d30001267616e616368652d31005430783532343434663138333541646330323038366333374362323236353631363035653245313639396200404686a2c066c784a915f3e01c853d3195ed254c948e21adbb3e4a9b3f5f3c74d7b9694602");
+    }
+
+    #[test]
+    fn should_encode_rotate_signers() {
+        let verifier_set = curr_ton_verifier_set();
+
+        let mut new_ton_set = curr_ton_verifier_set();
+        new_ton_set.created_at += 1;
+        let payload = Payload::VerifierSet(new_ton_set);
+
+        let sigs: Vec<_> = vec![
+            "63d43de6b5780ea29849a82b9b616c3a7c8c5332e5a1b34408c2745eabf07e2c7d539134e3480e3b3e1ac689f9fff05047b9bb1ecf1208732cf53a39ae0fe701",
+            "e619721e05b552e3090dc4a48624ada4ff91a4a4fbd94e2347f1e9716d95c9f1e43c29c1613838ef7beb2daec16c036d0942cc274d15ea64020c5fd94af94205",
+            "9b7265c9660f8dd37e99e6c8e4e5fc020a1f0ddb9d55c3f352e826990af144485903cb41b47d6091f7c753ff5de667414be03bfe6a1d3f06513d949005a3500c",
+        ].into_iter().map(|sig| HexBinary::from_hex(sig).unwrap()).collect();
+
+        let signers_with_sigs = signers_with_sigs(verifier_set.signers.values(), sigs);
+
+        let encoded_execute_data =
+            encode_execute_data(&verifier_set, signers_with_sigs, &payload).unwrap();
+
+        assert_eq!(encoded_execute_data.to_string(), "b5ee9c72410208010001c10002080000001401020040ab98abb510250ae97f3834f06829b35e08d6711dd57753b9c16307aadb4e5d5c0161800000000000000000000000000000018000000000000000000000000000000000000000000000000000000000000000c0030202ce0405020120060700e1479b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad049664000000000000000000000000000000019b7265c9660f8dd37e99e6c8e4e5fc020a1f0ddb9d55c3f352e826990af144485903cb41b47d6091f7c753ff5de667414be03bfe6a1d3f06513d949005a3500c800e100e841effcf3842f875c374639d2f02659f9358c26e94357c777219904954c6e0000000000000000000000000000000058f50f79ad5e03a8a6126a0ae6d85b0e9f2314ccb9686cd102309d17aafc1f8b1f54e44d38d2038ecf86b1a27e7ffc1411ee6ec7b3c4821ccb3d4e8e6b83f9c06000e110f37008f48b57e7841f4681a4d15f4d747443adf4871c8464bd5bd779019974c000000000000000000000000000000079865c87816d54b8c243712921892b693fe469293ef65388d1fc7a5c5b65727c790f0a70584e0e3bdefacb6bb05b00db4250b309d3457a99008317f652be5081608ba483f1");
     }
 
     #[test]
@@ -465,7 +517,7 @@ mod tests {
             .collect()
     }
 
-    pub fn curr_ton_verifier_set() -> VerifierSet {
+    fn curr_ton_verifier_set() -> VerifierSet {
         let pub_keys = vec![
             "03A107BFF3CE10BE1D70DD18E74BC09967E4D6309BA50D5F1DDC8664125531B8",
             "43CDC023D22D5F9E107D1A0693457D35D1D10EB7D21C721192F56F5DE40665D3",
@@ -475,7 +527,7 @@ mod tests {
         ton_verifier_set_from_pub_keys(&pub_keys)
     }
 
-    pub fn ton_verifier_set_from_pub_keys(pub_keys: &Vec<&str>) -> VerifierSet {
+    fn ton_verifier_set_from_pub_keys(pub_keys: &Vec<&str>) -> VerifierSet {
         let participants: Vec<(_, _)> = (0..pub_keys.len())
             .map(|i| {
                 (
@@ -490,7 +542,7 @@ mod tests {
         VerifierSet::new(participants, Uint128::from(3u128), 1)
     }
 
-    pub fn ton_messages() -> Vec<Message> {
+    fn ton_messages() -> Vec<Message> {
         vec![Message {
             cc_id: CrossChainId::new(
                 "ganache-1",
@@ -513,10 +565,14 @@ mod tests {
         }]
     }
 
-    pub fn ton_domain_separator() -> [u8; 32] {
+    fn ton_domain_separator() -> [u8; 32] {
         HexBinary::from_hex("6973c72935604464b28827141b0a463af8e3487616de69c5aa0c785392c9fb9f")
             .unwrap()
             .to_array()
             .unwrap()
+    }
+
+    fn vec_to_hex(vec: Vec<u8>) -> String {
+        vec.iter().map(|byte| format!("{:02x}", byte)).collect()
     }
 }
