@@ -185,7 +185,13 @@ fn message_to_cell(msg: Message) -> std::result::Result<Cell, TonCellError> {
         .to_vec();
     let ton_address_hash_buffer_cell = buffer_to_cell(ton_address_hash_buffer)
         .map_err(|_| TonCellError::InternalError("".to_owned()))?;
-    builder.store_reference(&Arc::new(ton_address_hash_buffer_cell.clone()))?; // problem this should be the Ton address hash!!! .storeRef(bufferToCell(msg.executableAddress.hash))
+
+    let mut last_cell_builder = CellBuilder::new();
+    last_cell_builder.store_reference(&Arc::new(ton_address_hash_buffer_cell.clone()))?; // problem this should be the Ton address hash!!! .storeRef(bufferToCell(msg.executableAddress.hash))
+    last_cell_builder.store_reference(&get_arced_cell(&msg.destination_chain.to_string())?)?;
+    let last_cell = last_cell_builder.build()?;
+
+    builder.store_reference(&Arc::new(last_cell))?;
     builder.store_uint(
         PAYLOAD_HASH_BITS,
         &BigUint::from_bytes_be(&msg.payload_hash),
@@ -322,22 +328,14 @@ fn compute_verifier_set_hash(verifier_set: &VerifierSet) -> Hash {
     nonce_bytes[NONCE_BITS / 8 - nonce_be.len()..].copy_from_slice(&nonce_be);
     data.extend(nonce_bytes);
 
-    let mut current_hash = Keccak256::digest(data);
+    let mut current_hash = Keccak256::digest(&data);
 
-    let first_key = "verifier0";
-    let first_verifier = verifier_set.signers.get(first_key).unwrap();
+    // Sort the keys lexicographically
+    let mut sorted_keys: Vec<&String> = verifier_set.signers.keys().collect();
+    sorted_keys.sort();
 
-    // Process first signer
-    let mut hasher = Keccak256::new();
-    hasher.update(0u16.to_be_bytes());
-    hasher.update(&first_verifier.pub_key);
-    hasher.update(&first_verifier.weight.to_be_bytes());
-    hasher.update(&current_hash);
-    current_hash = hasher.finalize();
-
-    // Process remaining signers
-    for i in 1..verifier_set.signers.len() {
-        let signer = verifier_set.signers.get(&format!("verifier{}", i)).unwrap();
+    for (i, key) in sorted_keys.iter().enumerate() {
+        let signer = verifier_set.signers.get(*key).unwrap();
 
         let mut hasher = Keccak256::new();
         hasher.update((i as u16).to_be_bytes());
@@ -448,7 +446,7 @@ mod tests {
         let encoded_execute_data =
             encode_execute_data(&verifier_set, signers_with_sigs, &payload).unwrap();
 
-        assert_eq!(encoded_execute_data.to_string(), "b5ee9c7241020e0100026c0002080000002801020161800000000000000000000000000000018000000000000000000000000000000000000000000000000000000000000000c0030101c0040202ce05060102d007020120080900e1479b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad04966400000000000000000000000000000001d3ab834fc46a5eaccdfdf36b28cc1df759b26d98520303fe5643ee1480cb17f65758314043e9734922c200f14b236a898618679d3a0cc2a203ee094f470efa0f8044056570de287d73cd1cb6092bb8fdee6173974955fdef345ae579ee9f475ea74320a0b0c0d00e100e841effcf3842f875c374639d2f02659f9358c26e94357c777219904954c6e000000000000000000000000000000005b7386cbc2938532075fb490c9b45b2ce2965b74d0c63c30a3e101073be14dccc5d43189ce263763a8f5852ad44072ac9facdbc02503036f73c8446f22f5e7c3e000e110f37008f48b57e7841f4681a4d15f4d747443adf4871c8464bd5bd779019974c000000000000000000000000000000072f69484f8e8c05cbee22d00e30e7488ef8a6f1195a8db101e3b1faaabe393925b5ca82e8ebc78754fc766235efda2ada5a1952fc0c6e457e9980917026a0701e000883078666638323263383838303738353966663232366235386532346632343937346137306630346239343432353031616533386664363635623363363866333833342d30001267616e616368652d31005430783532343434663138333541646330323038366333374362323236353631363035653245313639396200404686a2c066c784a915f3e01c853d3195ed254c948e21adbb3e4a9b3f5f3c74d7b9694602");
+        assert_eq!(encoded_execute_data.to_string(), "b5ee9c72410210010002750002080000002801020161800000000000000000000000000000018000000000000000000000000000000000000000000000000000000000000000c0030101c0040202ce05060102d007020120080900e1479b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad04966400000000000000000000000000000001d3ab834fc46a5eaccdfdf36b28cc1df759b26d98520303fe5643ee1480cb17f65758314043e9734922c200f14b236a898618679d3a0cc2a203ee094f470efa0f8044056570de287d73cd1cb6092bb8fdee6173974955fdef345ae579ee9f475ea74320a0b0c0d00e100e841effcf3842f875c374639d2f02659f9358c26e94357c777219904954c6e000000000000000000000000000000005b7386cbc2938532075fb490c9b45b2ce2965b74d0c63c30a3e101073be14dccc5d43189ce263763a8f5852ad44072ac9facdbc02503036f73c8446f22f5e7c3e000e110f37008f48b57e7841f4681a4d15f4d747443adf4871c8464bd5bd779019974c000000000000000000000000000000072f69484f8e8c05cbee22d00e30e7488ef8a6f1195a8db101e3b1faaabe393925b5ca82e8ebc78754fc766235efda2ada5a1952fc0c6e457e9980917026a0701e000883078666638323263383838303738353966663232366235386532346632343937346137306630346239343432353031616533386664363635623363363866333833342d30001267616e616368652d31005430783532343434663138333541646330323038366333374362323236353631363035653245313639396202000e0f00404686a2c066c784a915f3e01c853d3195ed254c948e21adbb3e4a9b3f5f3c74d70006746f6eb488ecd4");
     }
 
     #[test]
@@ -552,9 +550,10 @@ mod tests {
             source_address: "0x52444f1835Adc02086c37Cb226561605e2E1699b"
                 .parse()
                 .unwrap(),
-            destination_address: "EQBGhqLAZseEqRXz4ByFPTGV7SVMlI4hrbs-Sps_Xzx01x8G"
-                .parse()
-                .unwrap(),
+            destination_address:
+                "0:4686a2c066c784a915f3e01c853d3195ed254c948e21adbb3e4a9b3f5f3c74d7"
+                    .parse()
+                    .unwrap(),
             destination_chain: "ton".parse().unwrap(),
             payload_hash: HexBinary::from_hex(
                 "56570de287d73cd1cb6092bb8fdee6173974955fdef345ae579ee9f475ea7432", // keccak256("0x1234");
