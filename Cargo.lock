@@ -1496,12 +1496,9 @@ dependencies = [
 
 [[package]]
 name = "bitstream-io"
-version = "4.1.0"
+version = "2.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "95a4952b106ee0920c957fc00cf32ddb1e885c5d8beee8f66ab973458129ff5b"
-dependencies = [
- "core2",
-]
+checksum = "6099cdc01846bc367c4e7dd630dc5966dccf36b652fae7a74e17b640411a91b2"
 
 [[package]]
 name = "bitvec"
@@ -7780,7 +7777,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be769465445e8c1474e9c5dac2018218498557af32d9ed057325ec9a41ae81bf"
 dependencies = [
  "heck 0.5.0",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "log",
  "multimap",
  "once_cell",
@@ -7813,7 +7810,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a56d757972c98b346a9b766e3f02746cde6dd1cd1d1d563472929fdd74bec4d"
 dependencies = [
  "anyhow",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "proc-macro2 1.0.95",
  "quote 1.0.40",
  "syn 2.0.101",
@@ -12616,11 +12613,10 @@ dependencies = [
 
 [[package]]
 name = "tonlib-core"
-version = "0.25.6"
+version = "0.24.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "49d0fc63ac500f60c02b620be4a18e3c4c48125d7bf018552c20b95219f5752d"
+checksum = "3031ff701b3beabbc1e120252da3928a9a08c994fe7957dc6cbc07c5ad904a5b"
 dependencies = [
- "async-trait",
  "base64 0.22.1",
  "bitstream-io",
  "crc",

@@ -12,7 +12,7 @@ use num_bigint::BigUint;
 use router_api::Message;
 use sha3::{Digest, Keccak256};
 use tonlib_core::cell::{Cell, CellBuilder, TonCellError};
-use tonlib_core::tlb_types::tlb::TLB;
+use tonlib_core::tlb_types::traits::TLBObject;
 use tonlib_core::TonAddress;
 
 use crate::error::ContractError;
