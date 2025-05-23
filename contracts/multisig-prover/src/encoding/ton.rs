@@ -33,14 +33,15 @@ const SIGNATURE_BYTES: usize = SIGNATURE_BITS / BITS_PER_BYTE;
 const SIGNER_PUBKEY_BITS: usize = 256;
 const SIGNER_PUBKEY_BYTES: usize = SIGNER_PUBKEY_BITS / BITS_PER_BYTE;
 
+#[allow(clippy::arithmetic_side_effects)]
 fn build_cell_chain(start_index: usize, buffer: Vec<u8>) -> Result<Cell, ContractError> {
     let mut builder = CellBuilder::new();
     let end_index = std::cmp::min(start_index + BYTES_PER_CELL, buffer.len());
 
     // Store bytes in the current cell
-    for i in start_index..end_index {
+    for byte in buffer.iter().take(end_index).skip(start_index) {
         builder
-            .store_uint(BITS_PER_BYTE, &BigUint::from(buffer[i]))
+            .store_uint(BITS_PER_BYTE, &BigUint::from(*byte))
             .map_err(|_| ContractError::TonError)?;
     }
 
@@ -86,7 +87,7 @@ impl TonProof {
                     _ => panic!("Only Ed25519 signatures are supported in Ton"),
                 };
                 (
-                    i as u16,
+                    u16::try_from(i).unwrap(),
                     WeightedSigner::new(pub_key_bytes, signer.weight.u128(), signature_bytes),
                 )
             })
@@ -139,7 +140,7 @@ impl WeightedSigner {
         }
     }
 
-    pub fn to_bytes(&self) -> Vec<u8> {
+    pub fn to_bytes(self) -> Vec<u8> {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&self.signer);
         bytes.extend_from_slice(&self.weight.to_be_bytes());
@@ -216,11 +217,11 @@ struct TonMessages {
 }
 
 impl TonMessages {
-    pub fn new(messages: &Vec<Message>) -> Self {
+    pub fn new(messages: &[Message]) -> Self {
         let msgs_hashmap: HashMap<u16, Message> = messages
             .iter() // Changed from into_iter() to iter()
             .enumerate()
-            .map(|(i, msg)| (i as u16, msg.clone())) // Added clone() since we're borrowing
+            .map(|(i, msg)| (u16::try_from(i).unwrap(), msg.clone())) // Added clone() since we're borrowing
             .collect();
         TonMessages { dict: msgs_hashmap }
     }
@@ -237,13 +238,13 @@ impl TonMessages {
     }
 }
 
-fn construct_messages(messages: &Vec<Message>) -> Result<Cell, ContractError> {
+fn construct_messages(messages: &[Message]) -> Result<Cell, ContractError> {
     let ton_msgs = TonMessages::new(messages);
     ton_msgs.to_cell()
 }
 
 fn build_approve_messages_body(
-    messages: &Vec<Message>,
+    messages: &[Message],
     verifier_set: &VerifierSet,
     signatures: Vec<SignerWithSig>,
 ) -> Result<Cell, ContractError> {
@@ -288,10 +289,10 @@ fn build_signer_rotation_body(
     Ok(builder.build().map_err(|_| ContractError::TonError)?)
 }
 
-fn compute_data_hash(msgs: &Vec<Message>) -> Hash {
+fn compute_data_hash(msgs: &[Message]) -> Hash {
     let mut concatenated: Vec<u8> = Vec::new();
 
-    for msg in msgs.clone() {
+    for msg in msgs.iter().cloned() {
         let message_id = msg.cc_id.message_id;
         let source_chain = msg.cc_id.source_chain;
         let source_contract_address = msg.source_address;
@@ -318,6 +319,7 @@ fn compute_data_hash(msgs: &Vec<Message>) -> Hash {
     Keccak256::digest(concatenated).into()
 }
 
+#[allow(clippy::arithmetic_side_effects)]
 fn compute_verifier_set_hash(verifier_set: &VerifierSet) -> Hash {
     let mut data = Vec::new();
     data.extend(verifier_set.threshold.to_be_bytes());
@@ -338,7 +340,7 @@ fn compute_verifier_set_hash(verifier_set: &VerifierSet) -> Hash {
         let signer = verifier_set.signers.get(*key).unwrap();
 
         let mut hasher = Keccak256::new();
-        hasher.update((i as u16).to_be_bytes());
+        hasher.update((u16::try_from(i).unwrap()).to_be_bytes());
         hasher.update(&signer.pub_key);
         hasher.update(signer.weight.to_be_bytes());
         hasher.update(current_hash);
@@ -349,7 +351,7 @@ fn compute_verifier_set_hash(verifier_set: &VerifierSet) -> Hash {
 }
 
 fn compute_approve_messages_hash(
-    msgs: &Vec<Message>,
+    msgs: &[Message],
     verifier_set: &VerifierSet,
     domain_separator: &Hash,
 ) -> Hash {
@@ -419,6 +421,8 @@ pub fn encode_execute_data(
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Write;
+
     use axelar_wasm_std::{nonempty, Participant};
     use cosmwasm_std::{Addr, HexBinary, Uint128};
     use itertools::Itertools;
@@ -480,7 +484,7 @@ mod tests {
         let payload_digest = payload_digest(&domain_separator, &verifier_set, &payload).unwrap();
 
         assert_eq!(
-            vec_to_hex(payload_digest.to_vec()),
+            hex_encode(payload_digest.to_vec().as_slice()),
             "e8214b369d9f4b11f4f0f7d2c921b56e9a34033e8f7f8599abe819b3cb7de2e0"
         );
     }
@@ -497,7 +501,7 @@ mod tests {
         let payload_digest = payload_digest(&domain_separator, &verifier_set, &payload).unwrap();
 
         assert_eq!(
-            vec_to_hex(payload_digest.to_vec()),
+            hex_encode(payload_digest.to_vec().as_slice()),
             "6fda89e65b639ef93667446d1b083a1038be0d3f004db53886fd26b3970b98ba"
         );
     }
@@ -525,7 +529,7 @@ mod tests {
         ton_verifier_set_from_pub_keys(&pub_keys)
     }
 
-    fn ton_verifier_set_from_pub_keys(pub_keys: &Vec<&str>) -> VerifierSet {
+    fn ton_verifier_set_from_pub_keys(pub_keys: &[&str]) -> VerifierSet {
         let participants: Vec<(_, _)> = (0..pub_keys.len())
             .map(|i| {
                 (
@@ -571,7 +575,11 @@ mod tests {
             .unwrap()
     }
 
-    fn vec_to_hex(vec: Vec<u8>) -> String {
-        vec.iter().map(|byte| format!("{:02x}", byte)).collect()
+    fn hex_encode(bytes: &[u8]) -> String {
+        bytes.iter().fold(String::new(), |mut output, b| {
+            // write! returns a Result; we can ignore the error here
+            let _ = write!(&mut output, "{:02x}", b);
+            output
+        })
     }
 }

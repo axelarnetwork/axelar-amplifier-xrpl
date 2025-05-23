@@ -324,6 +324,7 @@ dependencies = [
  "toml 0.5.11",
  "tonic 0.13.1",
  "tonic-build",
+ "tonlib-core",
  "tower 0.5.2",
  "tower-http 0.6.4",
  "tracing",
@@ -1073,7 +1074,7 @@ dependencies = [
  "strum 0.25.0",
  "sui-types 1.0.0",
  "thiserror 1.0.69",
- "ton_smart_contract_address",
+ "tonlib-core",
  "valuable",
 ]
 
@@ -1285,12 +1286,6 @@ name = "base64"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e1b586273c5702936fe7b7d6896644d8be71e6314cfe09d3167c95f712589e8"
-
-[[package]]
-name = "base64"
-version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ea22880d78093b0cbe17c89f64a7d457941e65759157ec6cb31a31d652b05e5"
 
 [[package]]
 name = "base64"
@@ -2457,12 +2452,6 @@ name = "crc-catalog"
 version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19d374276b40fb8bbdee95aef7c7fa6b5316ec764510eb64b8dd0e2ed0d7e7f5"
-
-[[package]]
-name = "crc16"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "338089f42c427b86394a5ee60ff321da23a5c89c9d89514c829687b26359fcff"
 
 [[package]]
 name = "crc32fast"
@@ -12511,16 +12500,6 @@ name = "toml_write"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bfb942dfe1d8e29a7ee7fcbde5bd2b9a25fb89aa70caea2eba3bee836ff41076"
-
-[[package]]
-name = "ton_smart_contract_address"
-version = "0.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c1f8caf44ebc3b707257d3b8a8f1b41ee02dc2c970281ebaf1dfd6dd5ea674a7"
-dependencies = [
- "base64 0.20.0",
- "crc16",
-]
 
 [[package]]
 name = "tonic"
