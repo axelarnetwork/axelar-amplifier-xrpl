@@ -56,7 +56,7 @@ fn build_cell_chain(start_index: usize, buffer: Vec<u8>) -> Result<Cell, Contrac
 }
 
 fn buffer_to_cell(buffer: Vec<u8>) -> Result<Cell, ContractError> {
-    Ok(build_cell_chain(0, buffer)?)
+    build_cell_chain(0, buffer)
 }
 
 #[derive(Clone, Debug)]
@@ -163,7 +163,7 @@ fn construct_proof(
     signatures: Vec<SignerWithSig>,
 ) -> Result<Cell, ContractError> {
     let proof = TonProof::new(verifier_set, signatures);
-    Ok(proof.to_cell()?)
+    proof.to_cell()
 }
 
 fn get_arced_cell(inner: &str) -> std::result::Result<Arc<Cell>, TonCellError> {
@@ -176,7 +176,7 @@ fn get_arced_cell(inner: &str) -> std::result::Result<Arc<Cell>, TonCellError> {
 fn message_to_cell(msg: Message) -> std::result::Result<Cell, TonCellError> {
     let mut builder = CellBuilder::new();
     builder.store_reference(&get_arced_cell(&msg.cc_id.message_id)?)?;
-    builder.store_reference(&get_arced_cell(&msg.cc_id.source_chain.to_string())?)?;
+    builder.store_reference(&get_arced_cell(msg.cc_id.source_chain.as_ref())?)?;
     builder.store_reference(&get_arced_cell(&msg.source_address)?)?;
 
     let ton_address_hash_buffer = TonAddress::from_str(&msg.destination_address)
@@ -188,7 +188,7 @@ fn message_to_cell(msg: Message) -> std::result::Result<Cell, TonCellError> {
 
     let mut last_cell_builder = CellBuilder::new();
     last_cell_builder.store_reference(&Arc::new(ton_address_hash_buffer_cell.clone()))?; // problem this should be the Ton address hash!!! .storeRef(bufferToCell(msg.executableAddress.hash))
-    last_cell_builder.store_reference(&get_arced_cell(&msg.destination_chain.to_string())?)?;
+    last_cell_builder.store_reference(&get_arced_cell(msg.destination_chain.as_ref())?)?;
     let last_cell = last_cell_builder.build()?;
 
     builder.store_reference(&Arc::new(last_cell))?;
@@ -239,7 +239,7 @@ impl TonMessages {
 
 fn construct_messages(messages: &Vec<Message>) -> Result<Cell, ContractError> {
     let ton_msgs = TonMessages::new(messages);
-    Ok(ton_msgs.to_cell()?)
+    ton_msgs.to_cell()
 }
 
 fn build_approve_messages_body(
@@ -340,8 +340,8 @@ fn compute_verifier_set_hash(verifier_set: &VerifierSet) -> Hash {
         let mut hasher = Keccak256::new();
         hasher.update((i as u16).to_be_bytes());
         hasher.update(&signer.pub_key);
-        hasher.update(&signer.weight.to_be_bytes());
-        hasher.update(&current_hash);
+        hasher.update(signer.weight.to_be_bytes());
+        hasher.update(current_hash);
         current_hash = hasher.finalize();
     }
 
