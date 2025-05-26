@@ -94,6 +94,16 @@ pub enum Config {
         rpc_url: Url,
         rpc_timeout: Option<Duration>,
     },
+    TonMsgVerifier {
+        cosmwasm_contract: TMAddress,
+        chain: Chain,
+        rpc_timeout: Option<Duration>,
+    },
+    TonVerifierSetVerifier {
+        cosmwasm_contract: TMAddress,
+        chain: Chain,
+        rpc_timeout: Option<Duration>,
+    },
 }
 
 fn validate_starknet_msg_verifier_config<'de, D>(configs: &[Config]) -> Result<(), D::Error>
