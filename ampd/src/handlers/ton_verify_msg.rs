@@ -25,8 +25,24 @@ use crate::types::{Hash, TMAddress};
 
 type Result<T> = error_stack::Result<T, Error>;
 
+mod hex_tx_hash_string {
+    use std::str::FromStr;
+
+    use axelar_wasm_std::msg_id::HexTxHash;
+    use serde::{Deserialize, Deserializer};
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<HexTxHash, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let string = String::deserialize(deserializer)?;
+        HexTxHash::from_str(&string).map_err(serde::de::Error::custom)
+    }
+}
+
 #[derive(Deserialize, Debug, PartialEq)] // TODO: Implement PartialEq manually?
 pub struct Message {
+    #[serde(with = "hex_tx_hash_string")]
     pub message_id: HexTxHash,
     pub destination_address: String,
     pub destination_chain: ChainName,
@@ -47,7 +63,6 @@ struct PollStartedEvent {
 }
 
 use thiserror::Error;
-use error_stack::{report};
 
 #[derive(Error, Debug)]
 pub enum FetchingError {
@@ -56,12 +71,16 @@ pub enum FetchingError {
     #[error("invalid tx hash")]
     TxHash,
     #[error("invalid call")]
-    InvalidCall
+    InvalidCall,
 }
 
 #[async_trait::async_trait]
 pub trait TonClient: Send + Sync + 'static {
-    async fn get_tx(&self, tx_hash: &HexTxHash, gateway: &TonAddress) -> error_stack::Result<Message, FetchingError>;
+    async fn get_tx(
+        &self,
+        tx_hash: &HexTxHash,
+        gateway: &TonAddress,
+    ) -> error_stack::Result<Message, FetchingError>;
 }
 
 pub struct Handler<C>
@@ -97,16 +116,20 @@ where
             finalizer_type,
             rpc_client,
             latest_block_height,
-            gateway
+            gateway,
         }
     }
 
     async fn verify_tx(&self, claimed_message: &Message) -> bool {
-        match self.rpc_client.get_tx(&claimed_message.message_id, &self.gateway).await {
+        match self
+            .rpc_client
+            .get_tx(&claimed_message.message_id, &self.gateway)
+            .await
+        {
             Ok(res) => {
                 // verify that res == claimed_message
                 res == *claimed_message
-            },
+            }
             Err(_) => false,
         }
     }

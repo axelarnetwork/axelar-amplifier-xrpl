@@ -245,6 +245,7 @@ name = "ampd"
 version = "1.8.0"
 dependencies = [
  "ampd-proto",
+ "anyhow",
  "assert_ok",
  "async-trait",
  "axelar-solana-encoding",
@@ -283,6 +284,7 @@ dependencies = [
  "move-core-types",
  "multisig",
  "multiversx-sdk",
+ "num-bigint 0.4.6",
  "num-traits",
  "openssl",
  "pin-project-lite",
@@ -324,7 +326,7 @@ dependencies = [
  "toml 0.5.11",
  "tonic 0.13.1",
  "tonic-build",
- "tonlib-core",
+ "tonlib-core 0.25.7",
  "tower 0.5.2",
  "tower-http 0.6.4",
  "tracing",
@@ -1074,7 +1076,7 @@ dependencies = [
  "strum 0.25.0",
  "sui-types 1.0.0",
  "thiserror 1.0.69",
- "tonlib-core",
+ "tonlib-core 0.24.6",
  "valuable",
 ]
 
@@ -1494,6 +1496,15 @@ name = "bitstream-io"
 version = "2.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6099cdc01846bc367c4e7dd630dc5966dccf36b652fae7a74e17b640411a91b2"
+
+[[package]]
+name = "bitstream-io"
+version = "4.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95a4952b106ee0920c957fc00cf32ddb1e885c5d8beee8f66ab973458129ff5b"
+dependencies = [
+ "core2",
+]
 
 [[package]]
 name = "bitvec"
@@ -6412,7 +6423,7 @@ dependencies = [
  "stellar-xdr",
  "sui-gateway",
  "thiserror 1.0.69",
- "tonlib-core",
+ "tonlib-core 0.24.6",
  "voting-verifier",
 ]
 
@@ -12601,7 +12612,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3031ff701b3beabbc1e120252da3928a9a08c994fe7957dc6cbc07c5ad904a5b"
 dependencies = [
  "base64 0.22.1",
- "bitstream-io",
+ "bitstream-io 2.6.0",
+ "crc",
+ "hex",
+ "hmac 0.12.1",
+ "lazy_static",
+ "nacl",
+ "num-bigint 0.4.6",
+ "num-traits",
+ "pbkdf2 0.12.2",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.12",
+]
+
+[[package]]
+name = "tonlib-core"
+version = "0.25.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "274d37db7030ec4158b6ad6106d1edbb3cc3e021c038bcc0fd45859f34633895"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "bitstream-io 4.1.0",
  "crc",
  "hex",
  "hmac 0.12.1",
