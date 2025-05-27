@@ -1,4 +1,5 @@
 use std::pin::Pin;
+use std::str::FromStr;
 use std::time::Duration;
 
 use asyncutil::task::{CancellableTask, TaskError, TaskGroup};
@@ -24,6 +25,7 @@ use tokio::sync::mpsc;
 use tokio::time::interval;
 use tokio_util::sync::CancellationToken;
 use ton_rpc::MockTonClient;
+use tonlib_core::TonAddress;
 use tracing::info;
 use types::{CosmosPublicKey, TMAddress};
 
@@ -565,6 +567,7 @@ where
                             chain.finalization,
                             ton_client,
                             self.block_height_monitor.latest_block_height(),
+                            "EQDdF2mqsiJ1lj-fTO-uRUa3qvUqdRUp0FGNMeLKXZTPnOKR".parse().unwrap()
                         ),
                         event_processor_config.clone(),
                     )

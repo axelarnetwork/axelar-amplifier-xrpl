@@ -1,7 +1,7 @@
 use std::convert::TryInto;
 
 use async_trait::async_trait;
-use axelar_wasm_std::msg_id::HexTxHashAndEventIndex;
+use axelar_wasm_std::msg_id::HexTxHash;
 use axelar_wasm_std::voting::{PollId, Vote};
 use cosmrs::cosmwasm::MsgExecuteContract;
 use cosmrs::tx::Msg;
@@ -25,9 +25,9 @@ use crate::types::{Hash, TMAddress};
 
 type Result<T> = error_stack::Result<T, Error>;
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, PartialEq)] // TODO: Implement PartialEq manually?
 pub struct Message {
-    pub message_id: HexTxHashAndEventIndex,
+    pub message_id: HexTxHash,
     pub destination_address: String,
     pub destination_chain: ChainName,
     pub source_address: TonAddress,
@@ -46,9 +46,22 @@ struct PollStartedEvent {
     participants: Vec<TMAddress>,
 }
 
+use thiserror::Error;
+use error_stack::{report};
+
+#[derive(Error, Debug)]
+pub enum FetchingError {
+    #[error("failed to create client")]
+    Client,
+    #[error("invalid tx hash")]
+    TxHash,
+    #[error("invalid call")]
+    InvalidCall
+}
+
 #[async_trait::async_trait]
 pub trait TonClient: Send + Sync + 'static {
-    async fn get_tx(&self, tx_hash: &str) -> Option<String>;
+    async fn get_tx(&self, tx_hash: &HexTxHash, gateway: &TonAddress) -> error_stack::Result<Message, FetchingError>;
 }
 
 pub struct Handler<C>
@@ -61,6 +74,7 @@ where
     finalizer_type: Finalization,
     rpc_client: C,
     latest_block_height: Receiver<u64>,
+    gateway: TonAddress,
 }
 
 impl<C> Handler<C>
@@ -74,6 +88,7 @@ where
         finalizer_type: Finalization,
         rpc_client: C,
         latest_block_height: Receiver<u64>,
+        gateway: TonAddress,
     ) -> Self {
         Self {
             verifier,
@@ -82,11 +97,18 @@ where
             finalizer_type,
             rpc_client,
             latest_block_height,
+            gateway
         }
     }
 
-    async fn get_tx(&self, tx_hash: &str) -> Option<String> {
-        todo!()
+    async fn verify_tx(&self, claimed_message: &Message) -> bool {
+        match self.rpc_client.get_tx(&claimed_message.message_id, &self.gateway).await {
+            Ok(res) => {
+                // verify that res == claimed_message
+                res == *claimed_message
+            },
+            Err(_) => false,
+        }
     }
 
     fn vote_msg(&self, poll_id: PollId, votes: Vec<Vote>) -> MsgExecuteContract {
@@ -127,13 +149,14 @@ where
             event => event.change_context(DeserializeEvent)?,
         };
 
-        if self.chain != source_chain {
+        /*if self.chain != source_chain {
             return Ok(vec![]);
-        }
+        }*/
 
-        if !participants.contains(&self.verifier) {
+        // TODO: add that again!
+        /*if !participants.contains(&self.verifier) {
             return Ok(vec![]);
-        }
+        }*/
 
         let latest_block_height = *self.latest_block_height.borrow();
         if latest_block_height >= expires_at {
@@ -154,11 +177,21 @@ where
                 .collect::<Vec<String>>()
                 .as_value(),
         )
-        .in_scope(|| {
+        .in_scope(|| async {
             info!("ready to verify messages in poll",);
 
             // Always return SucceededOnChain for all messages
-            let votes: Vec<_> = messages.iter().map(|_| Vote::SucceededOnChain).collect();
+            let mut votes = Vec::new();
+
+            for m in messages.iter() {
+                let success = self.verify_tx(m).await;
+                let vote = if success {
+                    Vote::SucceededOnChain
+                } else {
+                    Vote::NotFound // TODO: properly distinguish negative voting types
+                };
+                votes.push(vote);
+            }
             info!(
                 votes = votes.as_value(),
                 "ready to vote for messages in poll"
@@ -168,7 +201,7 @@ where
         });
 
         Ok(vec![self
-            .vote_msg(poll_id, votes)
+            .vote_msg(poll_id, votes.await)
             .into_any()
             .expect("vote msg should serialize")])
     }

@@ -65,7 +65,7 @@ solana-sdk = "=2.1.21"
 solana-transaction-status = "=2.1.21"
 solana-zk-token-sdk = "=2.1.21"
 starknet-checked-felt = { workspace = true }
-tonlib-core = "0.24.6"
+tonlib-core = "0.25.7"
 
 starknet-core = { workspace = true }
 starknet-providers = { workspace = true }
@@ -99,6 +99,8 @@ valuable-serde = { version = "0.1.0", features = ["std"] }
 voting-verifier = { workspace = true }
 xrpl-types = { workspace = true }
 xrpl_http_client = { version = "0.15.0" }
+num-bigint = "0.4.6"
+anyhow.workspace = true
 
 [build-dependencies]
 tonic-build = "0.13.0"
