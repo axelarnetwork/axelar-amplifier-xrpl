@@ -96,7 +96,7 @@ pub enum Config {
     },
     TonMsgVerifier {
         cosmwasm_contract: TMAddress,
-        chain: Chain,
+        rpc_url: Url,
         rpc_timeout: Option<Duration>,
     },
     TonVerifierSetVerifier {

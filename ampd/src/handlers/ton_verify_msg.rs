@@ -1,7 +1,7 @@
 use std::convert::TryInto;
 
 use async_trait::async_trait;
-use axelar_wasm_std::msg_id::HexTxHashAndEventIndex;
+use axelar_wasm_std::msg_id::HexTxHash;
 use axelar_wasm_std::voting::{PollId, Vote};
 use cosmrs::cosmwasm::MsgExecuteContract;
 use cosmrs::tx::Msg;
@@ -18,16 +18,31 @@ use valuable::Valuable;
 use voting_verifier::msg::ExecuteMsg;
 
 use crate::event_processor::EventHandler;
-use crate::evm::finalizer::Finalization;
 use crate::handlers::errors::Error;
 use crate::handlers::errors::Error::DeserializeEvent;
 use crate::types::{Hash, TMAddress};
 
 type Result<T> = error_stack::Result<T, Error>;
 
-#[derive(Deserialize, Debug)]
+mod hex_tx_hash_string {
+    use std::str::FromStr;
+
+    use axelar_wasm_std::msg_id::HexTxHash;
+    use serde::{Deserialize, Deserializer};
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<HexTxHash, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let string = String::deserialize(deserializer)?;
+        HexTxHash::from_str(&string).map_err(serde::de::Error::custom)
+    }
+}
+
+#[derive(Deserialize, Debug, PartialEq)]
 pub struct Message {
-    pub message_id: HexTxHashAndEventIndex,
+    #[serde(with = "hex_tx_hash_string")]
+    pub message_id: HexTxHash,
     pub destination_address: String,
     pub destination_chain: ChainName,
     pub source_address: TonAddress,
@@ -46,9 +61,25 @@ struct PollStartedEvent {
     participants: Vec<TMAddress>,
 }
 
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum FetchingError {
+    #[error("failed to create client")]
+    Client,
+    #[error("invalid call")]
+    InvalidCall,
+    #[error("transaction not found on chain")]
+    NotFound,
+}
+
 #[async_trait::async_trait]
 pub trait TonClient: Send + Sync + 'static {
-    async fn get_tx(&self, tx_hash: &str) -> Option<String>;
+    async fn get_tx(
+        &self,
+        tx_hash: &HexTxHash,
+        gateway: &TonAddress,
+    ) -> error_stack::Result<Message, FetchingError>;
 }
 
 pub struct Handler<C>
@@ -57,8 +88,6 @@ where
 {
     verifier: TMAddress,
     voting_verifier_contract: TMAddress,
-    chain: ChainName,
-    finalizer_type: Finalization,
     rpc_client: C,
     latest_block_height: Receiver<u64>,
 }
@@ -70,23 +99,33 @@ where
     pub fn new(
         verifier: TMAddress,
         voting_verifier_contract: TMAddress,
-        chain: ChainName,
-        finalizer_type: Finalization,
         rpc_client: C,
         latest_block_height: Receiver<u64>,
     ) -> Self {
         Self {
             verifier,
             voting_verifier_contract,
-            chain,
-            finalizer_type,
             rpc_client,
             latest_block_height,
         }
     }
 
-    async fn get_tx(&self, tx_hash: &str) -> Option<String> {
-        todo!()
+    async fn verify_tx(&self, claimed_message: &Message, gateway: &TonAddress) -> bool {
+        match self
+            .rpc_client
+            .get_tx(&claimed_message.message_id, gateway)
+            .await
+        {
+            Ok(res) => {
+                if res == *claimed_message {
+                    true
+                } else {
+                    info!("Real message not identical to claimed message");
+                    false
+                }
+            }
+            Err(_) => false,
+        }
     }
 
     fn vote_msg(&self, poll_id: PollId, votes: Vec<Vote>) -> MsgExecuteContract {
@@ -118,7 +157,7 @@ where
             source_gateway_address,
             messages,
             expires_at,
-            confirmation_height,
+            confirmation_height: _,
             participants,
         } = match event.try_into() as error_stack::Result<_, _> {
             Err(report) if matches!(report.current_context(), EventTypeMismatch(_)) => {
@@ -126,10 +165,6 @@ where
             }
             event => event.change_context(DeserializeEvent)?,
         };
-
-        if self.chain != source_chain {
-            return Ok(vec![]);
-        }
 
         if !participants.contains(&self.verifier) {
             return Ok(vec![]);
@@ -154,11 +189,20 @@ where
                 .collect::<Vec<String>>()
                 .as_value(),
         )
-        .in_scope(|| {
+        .in_scope(|| async {
             info!("ready to verify messages in poll",);
 
-            // Always return SucceededOnChain for all messages
-            let votes: Vec<_> = messages.iter().map(|_| Vote::SucceededOnChain).collect();
+            let mut votes = Vec::new();
+
+            for m in messages.iter() {
+                let success = self.verify_tx(m, &source_gateway_address).await;
+                let vote = if success {
+                    Vote::SucceededOnChain
+                } else {
+                    Vote::NotFound
+                };
+                votes.push(vote);
+            }
             info!(
                 votes = votes.as_value(),
                 "ready to vote for messages in poll"
@@ -168,7 +212,7 @@ where
         });
 
         Ok(vec![self
-            .vote_msg(poll_id, votes)
+            .vote_msg(poll_id, votes.await)
             .into_any()
             .expect("vote msg should serialize")])
     }
