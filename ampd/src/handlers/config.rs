@@ -99,7 +99,6 @@ pub enum Config {
         cosmwasm_contract: TMAddress,
         rpc_url: Url,
         rpc_timeout: Option<Duration>,
-        gateway: TonAddress,
     },
     TonVerifierSetVerifier {
         cosmwasm_contract: TMAddress,

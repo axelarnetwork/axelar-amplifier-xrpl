@@ -555,7 +555,6 @@ where
                     cosmwasm_contract,
                     rpc_url,
                     rpc_timeout,
-                    gateway,
                 } => {
                     let ton_client = TonRpcClient::new(&rpc_url.to_string());
                     self.create_handler_task(
@@ -565,7 +564,6 @@ where
                             cosmwasm_contract,
                             ton_client,
                             self.block_height_monitor.latest_block_height(),
-                            gateway,
                         ),
                         event_processor_config.clone(),
                     )

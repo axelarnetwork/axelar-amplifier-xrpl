@@ -91,7 +91,6 @@ where
     voting_verifier_contract: TMAddress,
     rpc_client: C,
     latest_block_height: Receiver<u64>,
-    gateway: TonAddress,
 }
 
 impl<C> Handler<C>
@@ -103,21 +102,19 @@ where
         voting_verifier_contract: TMAddress,
         rpc_client: C,
         latest_block_height: Receiver<u64>,
-        gateway: TonAddress,
     ) -> Self {
         Self {
             verifier,
             voting_verifier_contract,
             rpc_client,
             latest_block_height,
-            gateway,
         }
     }
 
-    async fn verify_tx(&self, claimed_message: &Message) -> bool {
+    async fn verify_tx(&self, claimed_message: &Message, gateway: &TonAddress) -> bool {
         match self
             .rpc_client
-            .get_tx(&claimed_message.message_id, &self.gateway)
+            .get_tx(&claimed_message.message_id, gateway)
             .await
         {
             Ok(res) => {
@@ -207,7 +204,7 @@ where
             let mut votes = Vec::new();
 
             for m in messages.iter() {
-                let success = self.verify_tx(m).await;
+                let success = self.verify_tx(m, &source_gateway_address).await;
                 let vote = if success {
                     Vote::SucceededOnChain
                 } else {
