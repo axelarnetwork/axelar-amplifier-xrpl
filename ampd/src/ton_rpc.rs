@@ -37,7 +37,7 @@ impl CellTo for Arc<Cell> {
                     Err(_) => break, // this means we are done
                 }
                 u8_vec.push(next_byte);
-            } 
+            }
             match parser.next_reference() {
                 Ok(r) => current_cell = Some(r),
                 _ => break,
@@ -51,7 +51,10 @@ impl CellTo for Arc<Cell> {
     }
 }
 
-fn parse_call_contract_log(message_id: HexTxHash, cell: &Arc<Cell>) -> error_stack::Result<Message, FetchingError> {
+fn parse_call_contract_log(
+    message_id: HexTxHash,
+    cell: &Arc<Cell>,
+) -> error_stack::Result<Message, FetchingError> {
     let mut parser = cell.parser();
     let destination_chain = parser
         .next_reference()
@@ -87,8 +90,8 @@ fn parse_call_contract_log(message_id: HexTxHash, cell: &Arc<Cell>) -> error_sta
         .try_into()
         .map_err(|_| FetchingError::InvalidCall)?;
 
-    let destination_chain = ChainName::from_str(&destination_chain)
-        .map_err(|_| FetchingError::InvalidCall)?;
+    let destination_chain =
+        ChainName::from_str(&destination_chain).map_err(|_| FetchingError::InvalidCall)?;
 
     return Ok(Message {
         message_id,
@@ -202,7 +205,7 @@ impl TonClient for TonRpcClient {
         {
             if let Ok(address) = TonAddress::from_hex_str(address) {
                 if address != *gateway {
-                info!("Call contract was emitted on a contract that is not the gateway");
+                    info!("Call contract was emitted on a contract that is not the gateway");
                     return Err(report!(FetchingError::InvalidCall));
                 }
             } else {

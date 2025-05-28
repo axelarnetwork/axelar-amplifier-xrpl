@@ -125,9 +125,7 @@ where
                     false
                 }
             }
-            Err(e) => {
-                false
-            },
+            Err(e) => false,
         }
     }
 
