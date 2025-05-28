@@ -553,22 +553,19 @@ where
                 ),
                 handlers::config::Config::TonMsgVerifier {
                     cosmwasm_contract,
-                    chain,
+                    rpc_url,
                     rpc_timeout,
+                    gateway,
                 } => {
-                    let ton_client = TonRpcClient::new(&chain.rpc_url.to_string());
+                    let ton_client = TonRpcClient::new(&rpc_url.to_string());
                     self.create_handler_task(
                         "ton-msg-verifier",
                         handlers::ton_verify_msg::Handler::new(
                             verifier.clone(),
                             cosmwasm_contract,
-                            chain.name,
-                            chain.finalization,
                             ton_client,
                             self.block_height_monitor.latest_block_height(),
-                            "EQDgkzGhZ3BIKKQ15jp2ShUqOMPJoe6xqcfj7XrCnnbglZQm"
-                                .parse()
-                                .unwrap(),
+                            gateway,
                         ),
                         event_processor_config.clone(),
                     )

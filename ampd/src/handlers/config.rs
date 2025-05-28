@@ -5,6 +5,7 @@ use router_api::ChainName;
 use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize};
 use serde_with::with_prefix;
+use tonlib_core::TonAddress;
 
 use crate::evm::finalizer::Finalization;
 use crate::types::TMAddress;
@@ -96,8 +97,9 @@ pub enum Config {
     },
     TonMsgVerifier {
         cosmwasm_contract: TMAddress,
-        chain: Chain,
+        rpc_url: Url,
         rpc_timeout: Option<Duration>,
+        gateway: TonAddress,
     },
     TonVerifierSetVerifier {
         cosmwasm_contract: TMAddress,

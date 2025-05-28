@@ -68,10 +68,10 @@ use thiserror::Error;
 pub enum FetchingError {
     #[error("failed to create client")]
     Client,
-    #[error("invalid tx hash")]
-    TxHash,
     #[error("invalid call")]
     InvalidCall,
+    #[error("transaction not found on chain")]
+    NotFound,
 }
 
 #[async_trait::async_trait]
@@ -89,8 +89,6 @@ where
 {
     verifier: TMAddress,
     voting_verifier_contract: TMAddress,
-    chain: ChainName,
-    finalizer_type: Finalization,
     rpc_client: C,
     latest_block_height: Receiver<u64>,
     gateway: TonAddress,
@@ -103,8 +101,6 @@ where
     pub fn new(
         verifier: TMAddress,
         voting_verifier_contract: TMAddress,
-        chain: ChainName,
-        finalizer_type: Finalization,
         rpc_client: C,
         latest_block_height: Receiver<u64>,
         gateway: TonAddress,
@@ -112,8 +108,6 @@ where
         Self {
             verifier,
             voting_verifier_contract,
-            chain,
-            finalizer_type,
             rpc_client,
             latest_block_height,
             gateway,
@@ -127,10 +121,16 @@ where
             .await
         {
             Ok(res) => {
-                // verify that res == claimed_message
-                res == *claimed_message
+                if res == *claimed_message {
+                    true
+                } else {
+                    info!("Real message not identical to claimed message");
+                    false
+                }
             }
-            Err(_) => false,
+            Err(e) => {
+                false
+            },
         }
     }
 
