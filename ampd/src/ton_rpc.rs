@@ -35,11 +35,10 @@ impl CellTo for Arc<Cell> {
         while let Some(cell) = current_cell {
             let mut parser = cell.parser();
             for _ in 0..BYTES_PER_CELL {
-                let next_byte: u8;
-                match parser.load_uint(8) {
-                    Ok(internal) => next_byte = internal.to_bytes_be()[0],
+                let next_byte = match parser.load_uint(8) {
+                    Ok(internal) => internal.to_bytes_be()[0],
                     Err(_) => break, // this means we are done
-                }
+                };
                 u8_vec.push(next_byte);
             }
             match parser.next_reference() {
@@ -91,13 +90,13 @@ fn parse_call_contract_log(
     let destination_chain =
         ChainName::from_str(&destination_chain).map_err(|_| FetchingError::InvalidCall)?;
 
-    return Ok(Message {
+    Ok(Message {
         message_id,
         payload_hash: H256::from(payload_hash),
         destination_address,
         destination_chain,
         source_address,
-    });
+    })
 }
 
 pub struct MockTonClient;
@@ -111,7 +110,7 @@ impl TonClient for MockTonClient {
     ) -> error_stack::Result<Message, FetchingError> {
         Ok(Message {
             message_id: HexTxHash::from_str(
-                "949b738e28e46ca279bd339f6967f973f4e1f8f025252be8222c97e115d24e6d".into(),
+                "949b738e28e46ca279bd339f6967f973f4e1f8f025252be8222c97e115d24e6d",
             )
             .unwrap(),
             destination_address: "0x72D489FC91f33011EC46Efa78d37E02dCC335453".to_string(),
@@ -154,7 +153,7 @@ impl TonClient for TonRpcClient {
         let client = Client::new();
 
         let res = client
-            .get(&format!("{}/{}", self.rpc_url, method))
+            .get(format!("{}/{}", self.rpc_url, method))
             .query(&data)
             .send()
             .await

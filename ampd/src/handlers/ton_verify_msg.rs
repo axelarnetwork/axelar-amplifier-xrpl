@@ -50,6 +50,7 @@ pub struct Message {
 }
 
 #[derive(Deserialize, Debug)]
+#[allow(dead_code)]
 #[try_from("wasm-messages_poll_started")]
 struct PollStartedEvent {
     poll_id: PollId,
