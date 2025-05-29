@@ -65,7 +65,6 @@ solana-sdk = "=2.1.21"
 solana-transaction-status = "=2.1.21"
 solana-zk-token-sdk = "=2.1.21"
 starknet-checked-felt = { workspace = true }
-tonlib-core = "0.24.6"
 
 starknet-core = { workspace = true }
 starknet-providers = { workspace = true }
@@ -83,6 +82,7 @@ tokio-stream = { workspace = true, features = ["sync"] }
 tokio-util = { workspace = true }
 toml = "0.5.9"
 tonic = "0.13.0"
+tonlib-core = "0.24.6"
 tower = "0.5.2"
 tower-http = { version = "0.6.4", features = ["trace"] }
 tracing = { workspace = true }

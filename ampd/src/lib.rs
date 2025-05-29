@@ -23,7 +23,7 @@ use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::mpsc;
 use tokio::time::interval;
 use tokio_util::sync::CancellationToken;
-use ton_rpc::MockTonClient;
+use ton_rpc::TonRpcClient;
 use tracing::info;
 use types::{CosmosPublicKey, TMAddress};
 
@@ -552,17 +552,15 @@ where
                 ),
                 handlers::config::Config::TonMsgVerifier {
                     cosmwasm_contract,
-                    chain,
-                    rpc_timeout,
+                    rpc_url,
+                    rpc_timeout: _,
                 } => {
-                    let ton_client = MockTonClient;
+                    let ton_client = TonRpcClient::new(&rpc_url.to_string());
                     self.create_handler_task(
                         "ton-msg-verifier",
                         handlers::ton_verify_msg::Handler::new(
                             verifier.clone(),
                             cosmwasm_contract,
-                            chain.name,
-                            chain.finalization,
                             ton_client,
                             self.block_height_monitor.latest_block_height(),
                         ),
@@ -570,9 +568,9 @@ where
                     )
                 }
                 handlers::config::Config::TonVerifierSetVerifier {
-                    cosmwasm_contract,
-                    chain,
-                    rpc_timeout,
+                    cosmwasm_contract: _,
+                    chain: _,
+                    rpc_timeout: _,
                 } => {
                     todo!()
                 }
