@@ -29,6 +29,7 @@ use tracing::info;
 use types::{CosmosPublicKey, TMAddress};
 
 use crate::config::Config;
+use crate::handlers::config::TONApiVersion;
 
 mod asyncutil;
 mod block_height_monitor;
@@ -555,8 +556,14 @@ where
                     cosmwasm_contract,
                     rpc_url,
                     rpc_timeout,
+                    rpc_version,
                 } => {
-                    let ton_client = TonRpcClient::new(&rpc_url.to_string());
+                    info!("The current api version is {:#?}", rpc_version);
+                    let ton_client = TonRpcClient::new(
+                        &rpc_url.to_string(),
+                        &rpc_timeout,
+                        &rpc_version.unwrap_or(TONApiVersion::v2),
+                    );
                     self.create_handler_task(
                         "ton-msg-verifier",
                         handlers::ton_verify_msg::Handler::new(

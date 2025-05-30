@@ -1,7 +1,7 @@
 use std::convert::TryInto;
 
 use async_trait::async_trait;
-use axelar_wasm_std::msg_id::HexTxHash;
+use axelar_wasm_std::msg_id::HexTxHashAndEventIndex;
 use axelar_wasm_std::voting::{PollId, Vote};
 use cosmrs::cosmwasm::MsgExecuteContract;
 use cosmrs::tx::Msg;
@@ -40,14 +40,23 @@ mod hex_tx_hash_string {
     }
 }
 
-#[derive(Deserialize, Debug, PartialEq)] // TODO: Implement PartialEq manually?
+#[derive(Deserialize, Debug)]
 pub struct Message {
-    #[serde(with = "hex_tx_hash_string")]
-    pub message_id: HexTxHash,
+    pub message_id: HexTxHashAndEventIndex,
     pub destination_address: String,
     pub destination_chain: ChainName,
     pub source_address: TonAddress,
     pub payload_hash: Hash,
+}
+
+impl PartialEq for Message {
+    fn eq(&self, other: &Message) -> bool {
+        return self.message_id.tx_hash_as_hex() == other.message_id.tx_hash_as_hex()
+            && self.message_id.event_index == other.message_id.event_index
+            && self.destination_address == other.destination_address
+            && self.source_address == other.source_address
+            && self.payload_hash == other.payload_hash;
+    }
 }
 
 #[derive(Deserialize, Debug)]
@@ -76,15 +85,21 @@ pub enum FetchingError {
 
 #[async_trait::async_trait]
 pub trait TonClient: Send + Sync + 'static {
+    async fn get_tx(
+        &self,
+        tx_hash: &HexTxHashAndEventIndex,
+        gateway: &TonAddress,
+    ) -> error_stack::Result<Message, FetchingError>;
+
     async fn get_tx_v2(
         &self,
-        tx_hash: &HexTxHash,
+        tx_hash: &HexTxHashAndEventIndex,
         gateway: &TonAddress,
     ) -> error_stack::Result<Message, FetchingError>;
 
     async fn get_tx_v3(
         &self,
-        tx_hash: &HexTxHash,
+        tx_hash: &HexTxHashAndEventIndex,
         gateway: &TonAddress,
     ) -> error_stack::Result<Message, FetchingError>;
 }
@@ -120,7 +135,7 @@ where
     async fn verify_tx(&self, claimed_message: &Message, gateway: &TonAddress) -> bool {
         match self
             .rpc_client
-            .get_tx_v2(&claimed_message.message_id, gateway)
+            .get_tx(&claimed_message.message_id, gateway)
             .await
         {
             Ok(res) => {

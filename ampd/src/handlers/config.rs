@@ -19,6 +19,12 @@ pub struct Chain {
     pub finalization: Finalization,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub enum TONApiVersion {
+    v2,
+    v3,
+}
+
 with_prefix!(chain "chain_");
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(tag = "type")]
@@ -99,6 +105,7 @@ pub enum Config {
         cosmwasm_contract: TMAddress,
         rpc_url: Url,
         rpc_timeout: Option<Duration>,
+        rpc_version: Option<TONApiVersion>,
     },
     TonVerifierSetVerifier {
         cosmwasm_contract: TMAddress,

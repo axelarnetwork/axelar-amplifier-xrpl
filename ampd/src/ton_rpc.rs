@@ -1,19 +1,23 @@
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{anyhow, Error};
 use async_trait::async_trait;
-use axelar_wasm_std::msg_id::HexTxHash;
+use axelar_wasm_std::msg_id::{HexTxHash, HexTxHashAndEventIndex};
+use base64::engine::general_purpose;
+use base64::Engine as _;
 use error_stack::{report, ResultExt};
 use ethers_core::types::H256;
+use hex::FromHex;
 use router_api::ChainName;
 use serde_json::Value;
 use tonlib_core::cell::Cell;
 use tonlib_core::TonAddress;
 use tracing::info;
 
+use crate::handlers::config::TONApiVersion;
 use crate::handlers::ton_verify_msg::{FetchingError, Message, TonClient};
-use base64::{engine::general_purpose, Engine as _};
 trait CellTo {
     fn cell_to_string(self) -> Result<String, Error>;
 
@@ -52,7 +56,7 @@ impl CellTo for Arc<Cell> {
 }
 
 fn parse_call_contract_log(
-    message_id: HexTxHash,
+    message_id: HexTxHashAndEventIndex,
     cell: &Arc<Cell>,
 ) -> error_stack::Result<Message, FetchingError> {
     let mut parser = cell.parser();
@@ -107,17 +111,28 @@ pub struct MockTonClient;
 
 #[async_trait]
 impl TonClient for MockTonClient {
+    async fn get_tx(
+        &self,
+        _tx_hash: &HexTxHashAndEventIndex,
+        _gateway: &TonAddress,
+    ) -> error_stack::Result<Message, FetchingError> {
+        return self.get_tx_v2(_tx_hash, _gateway).await;
+    }
+
     async fn get_tx_v2(
         &self,
-        _tx_hash: &HexTxHash,
+        _tx_hash: &HexTxHashAndEventIndex,
         _gateway: &TonAddress,
     ) -> error_stack::Result<Message, FetchingError> {
         // Always return Some("success") to simulate a successful transaction
         Ok(Message {
-            message_id: HexTxHash::from_str(
-                "949b738e28e46ca279bd339f6967f973f4e1f8f025252be8222c97e115d24e6d".into(),
-            )
-            .unwrap(),
+            message_id: HexTxHashAndEventIndex::new(
+                <[u8; 32]>::from_hex(
+                    "949b738e28e46ca279bd339f6967f973f4e1f8f025252be8222c97e115d24e6d",
+                )
+                .unwrap(),
+                1000000000000u64,
+            ),
             destination_address: "0x72D489FC91f33011EC46Efa78d37E02dCC335453".to_string(),
             destination_chain: ChainName::from_str("eth-sepolia").unwrap(),
             source_address: "0QCJitE8BZ8qOmlXagEMQa8jm0h7xVXqvrmliU3rESmTMCkR"
@@ -132,15 +147,18 @@ impl TonClient for MockTonClient {
 
     async fn get_tx_v3(
         &self,
-        _tx_hash: &HexTxHash,
+        _tx_hash: &HexTxHashAndEventIndex,
         _gateway: &TonAddress,
     ) -> error_stack::Result<Message, FetchingError> {
         // Always return Some("success") to simulate a successful transaction
         Ok(Message {
-            message_id: HexTxHash::from_str(
-                "949b738e28e46ca279bd339f6967f973f4e1f8f025252be8222c97e115d24e6d".into(),
-            )
-            .unwrap(),
+            message_id: HexTxHashAndEventIndex::new(
+                <[u8; 32]>::from_hex(
+                    "949b738e28e46ca279bd339f6967f973f4e1f8f025252be8222c97e115d24e6d",
+                )
+                .unwrap(),
+                1000000000000u64,
+            ),
             destination_address: "0x72D489FC91f33011EC46Efa78d37E02dCC335453".to_string(),
             destination_chain: ChainName::from_str("eth-sepolia").unwrap(),
             source_address: "0QCJitE8BZ8qOmlXagEMQa8jm0h7xVXqvrmliU3rESmTMCkR"
@@ -154,16 +172,26 @@ impl TonClient for MockTonClient {
     }
 }
 
-// Real implementation that you can use with actual TON RPC
 pub struct TonRpcClient {
     rpc_url: String,
-    // Add any other fields you need
+    rpc_version: TONApiVersion,
+    client: Client,
 }
 
 impl TonRpcClient {
-    pub fn new(rpc_url: &str) -> Self {
+    pub fn new(rpc_url: &str, rpc_timeout: &Option<Duration>, rpc_version: &TONApiVersion) -> Self {
+        let mut client = Client::builder();
+        if let Some(timeout) = rpc_timeout {
+            client = client.connect_timeout(timeout.to_owned());
+            client = client.timeout(timeout.to_owned());
+        }
+
+        let client = client.build().unwrap();
+
         TonRpcClient {
             rpc_url: rpc_url.to_owned(),
+            rpc_version: rpc_version.to_owned(),
+            client,
         }
     }
 }
@@ -180,19 +208,33 @@ const OP_CALL_CONTRACT_BYTES: [u8; 4] = [0, 0, 0, 9];
 
 #[async_trait]
 impl TonClient for TonRpcClient {
+    async fn get_tx(
+        &self,
+        tx_hash: &HexTxHashAndEventIndex,
+        gateway: &TonAddress,
+    ) -> error_stack::Result<Message, FetchingError> {
+        info!("The current rpc version is {:#?}", self.rpc_version);
+        match &self.rpc_version {
+            TONApiVersion::v2 => self.get_tx_v2(tx_hash, gateway).await,
+            TONApiVersion::v3 => self.get_tx_v3(tx_hash, gateway).await,
+        }
+    }
+
     async fn get_tx_v3(
         &self,
-        tx_hash: &HexTxHash,
+        tx_hash: &HexTxHashAndEventIndex,
         gateway: &TonAddress,
     ) -> error_stack::Result<Message, FetchingError> {
         let mut data: HashMap<String, String> = HashMap::new();
-        data.insert("hash".to_string(), tx_hash.to_string());
+        data.insert(
+            "hash".to_string(),
+            tx_hash.tx_hash_as_hex_no_prefix().to_string(),
+        );
 
         let method = "transactions";
 
-        let client = Client::new();
-
-        let res = client
+        let res = self
+            .client
             .get(&format!("{}/{}", self.rpc_url, method))
             .query(&data)
             .send()
@@ -306,10 +348,10 @@ impl TonClient for TonRpcClient {
 
     async fn get_tx_v2(
         &self,
-        tx_hash: &HexTxHash,
+        tx_hash: &HexTxHashAndEventIndex,
         gateway: &TonAddress,
     ) -> error_stack::Result<Message, FetchingError> {
-        // 0x 123123123123 
+        // 0x 123123123123
         let tx_hash_str = tx_hash.tx_hash_as_hex_no_prefix().to_string();
         let tx_hash_bytes = hex::decode(&tx_hash_str).change_context(FetchingError::InvalidCall)?;
 
@@ -318,12 +360,15 @@ impl TonClient for TonRpcClient {
         data.insert("address".to_string(), gateway.to_string());
         data.insert("limit".to_string(), "1".to_string());
         data.insert("archival".to_string(), "true".to_string());
-        data.insert("lt".to_string(), "35194951000001".to_string());
+        data.insert("lt".to_string(), tx_hash.event_index.to_string());
 
         let method = "getTransactions";
 
         let client = Client::new();
-        println!("Sending request now {}/{} with get data: {:#?}", self.rpc_url, method, data);
+        println!(
+            "Sending request now {}/{} with get data: {:#?}",
+            self.rpc_url, method, data
+        );
 
         let res = client
             .get(&format!("{}/{}", self.rpc_url, method))
@@ -344,7 +389,7 @@ impl TonClient for TonRpcClient {
         let result: Value = serde_json::from_str(&text).change_context(FetchingError::Client)?;
 
         if let Some(ok) = result.get("ok").and_then(|v| v.as_bool()) {
-            if(!ok) {
+            if (!ok) {
                 info!("Query returned not ok");
                 return Err(report!(FetchingError::Client));
             }
@@ -361,7 +406,7 @@ impl TonClient for TonRpcClient {
         if result.len() == 0 {
             info!("No results");
             return Err(report!(FetchingError::NotFound));
-        } 
+        }
 
         if result.len() != 1 {
             info!("RPC endpoint returned more than one result even though only one was requested");
@@ -372,24 +417,29 @@ impl TonClient for TonRpcClient {
             .get(0)
             .and_then(|v| v.as_object())
             .ok_or_else(|| report!(FetchingError::Client))?;
-    
+
         // check that returned transaction is actually the requested one
         if let Some(real_tx_hash) = result
             .get("transaction_id")
             .and_then(|v| v.as_object())
             .and_then(|v| v.get("hash"))
-            .and_then(|v| v.as_str()) {
-            
+            .and_then(|v| v.as_str())
+        {
             // attempt to decode
             match general_purpose::STANDARD.decode(real_tx_hash) {
-                Ok(real_tx_hash) => if real_tx_hash != tx_hash_bytes  {
-                    info!("tx hash not found, found {:?} instead (expected: {:?})", real_tx_hash, tx_hash_bytes);
-                    return Err(report!(FetchingError::NotFound));
-                },
+                Ok(real_tx_hash) => {
+                    if real_tx_hash != tx_hash_bytes {
+                        info!(
+                            "tx hash not found, found {:?} instead (expected: {:?})",
+                            real_tx_hash, tx_hash_bytes
+                        );
+                        return Err(report!(FetchingError::NotFound));
+                    }
+                }
                 Err(_) => {
                     info!("Failed to base64 decode");
-                    return Err(report!(FetchingError::Client))
-                },
+                    return Err(report!(FetchingError::Client));
+                }
             }
         } else {
             info!("transaction hash field not present");
@@ -425,20 +475,23 @@ impl TonClient for TonRpcClient {
             .and_then(|v| v.get("message"))
             .and_then(|v| v.as_str())
             .and_then(|v| v.strip_suffix("\n"))
-            {
-         
+        {
             // decode message
             match general_purpose::STANDARD.decode(message) {
-                Ok(message) => {
-                    match message.get(..4) {
-                        Some(opcode) => if opcode != OP_CALL_CONTRACT_BYTES.to_vec() {
-                            info!("Not a CALL_CONTRACT call, got {:?} but expected {:?}", opcode, OP_CALL_CONTRACT_BYTES.to_vec());
+                Ok(message) => match message.get(..4) {
+                    Some(opcode) => {
+                        if opcode != OP_CALL_CONTRACT_BYTES.to_vec() {
+                            info!(
+                                "Not a CALL_CONTRACT call, got {:?} but expected {:?}",
+                                opcode,
+                                OP_CALL_CONTRACT_BYTES.to_vec()
+                            );
                             return Err(report!(FetchingError::InvalidCall));
-                        },
-                        None => {
-                            info!("Failed to fetch 4 bytes opcode");
-                            return Err(report!(FetchingError::Client));
                         }
+                    }
+                    None => {
+                        info!("Failed to fetch 4 bytes opcode");
+                        return Err(report!(FetchingError::Client));
                     }
                 },
                 Err(_) => {
