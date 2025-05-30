@@ -76,7 +76,13 @@ pub enum FetchingError {
 
 #[async_trait::async_trait]
 pub trait TonClient: Send + Sync + 'static {
-    async fn get_tx(
+    async fn get_tx_v2(
+        &self,
+        tx_hash: &HexTxHash,
+        gateway: &TonAddress,
+    ) -> error_stack::Result<Message, FetchingError>;
+
+    async fn get_tx_v3(
         &self,
         tx_hash: &HexTxHash,
         gateway: &TonAddress,
@@ -114,7 +120,7 @@ where
     async fn verify_tx(&self, claimed_message: &Message, gateway: &TonAddress) -> bool {
         match self
             .rpc_client
-            .get_tx(&claimed_message.message_id, gateway)
+            .get_tx_v2(&claimed_message.message_id, gateway)
             .await
         {
             Ok(res) => {

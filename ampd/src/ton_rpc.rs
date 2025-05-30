@@ -13,7 +13,7 @@ use tonlib_core::TonAddress;
 use tracing::info;
 
 use crate::handlers::ton_verify_msg::{FetchingError, Message, TonClient};
-
+use base64::{engine::general_purpose, Engine as _};
 trait CellTo {
     fn cell_to_string(self) -> Result<String, Error>;
 
@@ -107,7 +107,30 @@ pub struct MockTonClient;
 
 #[async_trait]
 impl TonClient for MockTonClient {
-    async fn get_tx(
+    async fn get_tx_v2(
+        &self,
+        _tx_hash: &HexTxHash,
+        _gateway: &TonAddress,
+    ) -> error_stack::Result<Message, FetchingError> {
+        // Always return Some("success") to simulate a successful transaction
+        Ok(Message {
+            message_id: HexTxHash::from_str(
+                "949b738e28e46ca279bd339f6967f973f4e1f8f025252be8222c97e115d24e6d".into(),
+            )
+            .unwrap(),
+            destination_address: "0x72D489FC91f33011EC46Efa78d37E02dCC335453".to_string(),
+            destination_chain: ChainName::from_str("eth-sepolia").unwrap(),
+            source_address: "0QCJitE8BZ8qOmlXagEMQa8jm0h7xVXqvrmliU3rESmTMCkR"
+                .parse()
+                .unwrap(),
+            payload_hash: H256::from_str(
+                "72a1d814ac3bc3f32c851b71e1189910e10506aaabf6416303f84d385a736493",
+            )
+            .unwrap(),
+        })
+    }
+
+    async fn get_tx_v3(
         &self,
         _tx_hash: &HexTxHash,
         _gateway: &TonAddress,
@@ -153,10 +176,11 @@ use reqwest::{Client, Response}; // TODO: remove that
 use tonlib_core::tlb_types::tlb::TLB;
 
 const OP_CALL_CONTRACT_STR: &str = "0x00000009";
+const OP_CALL_CONTRACT_BYTES: [u8; 4] = [0, 0, 0, 9];
 
 #[async_trait]
 impl TonClient for TonRpcClient {
-    async fn get_tx(
+    async fn get_tx_v3(
         &self,
         tx_hash: &HexTxHash,
         gateway: &TonAddress,
@@ -258,6 +282,180 @@ impl TonClient for TonRpcClient {
             .and_then(|v| v.get("out_msgs"))
             .and_then(|v| v.get(0))
             .and_then(|v| v.get("message_content"))
+            .and_then(|v| v.get("body"))
+            .and_then(|v| v.as_str())
+        {
+            // attempt to parse this log as a cell
+            if let Ok(log) = Cell::from_boc_b64(log).and_then(|c| Arc::from_cell(&c)) {
+                // parse it now
+                if let Ok(result) = parse_call_contract_log(tx_hash.clone(), &log) {
+                    return Ok(result);
+                } else {
+                    info!("Failed to load event body as a contract call data");
+                    return Err(report!(FetchingError::InvalidCall));
+                }
+            } else {
+                info!("Failed to load event body as a cell");
+                return Err(report!(FetchingError::InvalidCall));
+            }
+        } else {
+            info!("Failed to load event body");
+            return Err(report!(FetchingError::InvalidCall));
+        }
+    }
+
+    async fn get_tx_v2(
+        &self,
+        tx_hash: &HexTxHash,
+        gateway: &TonAddress,
+    ) -> error_stack::Result<Message, FetchingError> {
+        // 0x 123123123123 
+        let tx_hash_str = tx_hash.tx_hash_as_hex_no_prefix().to_string();
+        let tx_hash_bytes = hex::decode(&tx_hash_str).change_context(FetchingError::InvalidCall)?;
+
+        let mut data: HashMap<String, String> = HashMap::new();
+        data.insert("hash".to_string(), tx_hash_str.clone());
+        data.insert("address".to_string(), gateway.to_string());
+        data.insert("limit".to_string(), "1".to_string());
+        data.insert("archival".to_string(), "true".to_string());
+        data.insert("lt".to_string(), "35194951000001".to_string());
+
+        let method = "getTransactions";
+
+        let client = Client::new();
+        println!("Sending request now {}/{} with get data: {:#?}", self.rpc_url, method, data);
+
+        let res = client
+            .get(&format!("{}/{}", self.rpc_url, method))
+            .query(&data)
+            .send()
+            .await
+            .change_context(FetchingError::Client)?;
+
+        let status = res.status();
+        let text = res.text().await.change_context(FetchingError::Client)?;
+
+        if !status.is_success() {
+            info!("RPC query failed");
+            info!("RPC returned {}", text);
+            return Err(report!(FetchingError::Client));
+        }
+
+        let result: Value = serde_json::from_str(&text).change_context(FetchingError::Client)?;
+
+        if let Some(ok) = result.get("ok").and_then(|v| v.as_bool()) {
+            if(!ok) {
+                info!("Query returned not ok");
+                return Err(report!(FetchingError::Client));
+            }
+        } else {
+            info!("Failed to parse query");
+            return Err(report!(FetchingError::Client));
+        }
+
+        let result = result
+            .get("result")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| report!(FetchingError::Client))?;
+
+        if result.len() == 0 {
+            info!("No results");
+            return Err(report!(FetchingError::NotFound));
+        } 
+
+        if result.len() != 1 {
+            info!("RPC endpoint returned more than one result even though only one was requested");
+            return Err(report!(FetchingError::Client));
+        }
+
+        let result = result
+            .get(0)
+            .and_then(|v| v.as_object())
+            .ok_or_else(|| report!(FetchingError::Client))?;
+    
+        // check that returned transaction is actually the requested one
+        if let Some(real_tx_hash) = result
+            .get("transaction_id")
+            .and_then(|v| v.as_object())
+            .and_then(|v| v.get("hash"))
+            .and_then(|v| v.as_str()) {
+            
+            // attempt to decode
+            match general_purpose::STANDARD.decode(real_tx_hash) {
+                Ok(real_tx_hash) => if real_tx_hash != tx_hash_bytes  {
+                    info!("tx hash not found, found {:?} instead (expected: {:?})", real_tx_hash, tx_hash_bytes);
+                    return Err(report!(FetchingError::NotFound));
+                },
+                Err(_) => {
+                    info!("Failed to base64 decode");
+                    return Err(report!(FetchingError::Client))
+                },
+            }
+        } else {
+            info!("transaction hash field not present");
+            return Err(report!(FetchingError::Client));
+        }
+
+        // access result["address"]["account_address"] and check if it matches the gateway address
+        if let Some(address) = result
+            .get("address")
+            .and_then(|v| v.get("account_address"))
+            .and_then(|v| v.as_str())
+        {
+            if let Ok(address) = TonAddress::from_base64_url(address) {
+                if address != *gateway {
+                    info!("Call contract was emitted on a contract that is not the gateway");
+                    return Err(report!(FetchingError::InvalidCall));
+                }
+            } else {
+                info!("Failed to decode gateway address");
+                return Err(report!(FetchingError::Client));
+            }
+        } else {
+            info!("Failed to get gateway address");
+            return Err(report!(FetchingError::Client));
+        }
+
+        // access result["aborted"] and check if it is false
+        // there is no such field?!
+
+        // access result["in_msg"]["message"] and check if it begins with OP_CALL_CONTRACT
+        if let Some(message) = result
+            .get("in_msg")
+            .and_then(|v| v.get("message"))
+            .and_then(|v| v.as_str())
+            .and_then(|v| v.strip_suffix("\n"))
+            {
+         
+            // decode message
+            match general_purpose::STANDARD.decode(message) {
+                Ok(message) => {
+                    match message.get(..4) {
+                        Some(opcode) => if opcode != OP_CALL_CONTRACT_BYTES.to_vec() {
+                            info!("Not a CALL_CONTRACT call, got {:?} but expected {:?}", opcode, OP_CALL_CONTRACT_BYTES.to_vec());
+                            return Err(report!(FetchingError::InvalidCall));
+                        },
+                        None => {
+                            info!("Failed to fetch 4 bytes opcode");
+                            return Err(report!(FetchingError::Client));
+                        }
+                    }
+                },
+                Err(_) => {
+                    info!("Failed to fetch opcode");
+                    return Err(report!(FetchingError::Client));
+                }
+            }
+        } else {
+            info!("Failed to get log at expected tx");
+            return Err(report!(FetchingError::InvalidCall));
+        }
+
+        // access result["out_msgs"][0]["message_content"]["body"], load it as a cell and check if it matches the given values
+        if let Some(log) = result
+            .get("out_msgs")
+            .and_then(|v| v.get(0))
+            .and_then(|v| v.get("msg_data"))
             .and_then(|v| v.get("body"))
             .and_then(|v| v.as_str())
         {
