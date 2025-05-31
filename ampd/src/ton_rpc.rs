@@ -1,8 +1,3 @@
-use std::str::FromStr;
-use std::sync::Arc;
-use std::time::Duration;
-
-use anyhow::{anyhow, Error};
 use async_trait::async_trait;
 use axelar_wasm_std::msg_id::{HexTxHash, HexTxHashAndEventIndex};
 use base64::engine::general_purpose;
@@ -12,22 +7,29 @@ use ethers_core::types::H256;
 use hex::FromHex;
 use router_api::ChainName;
 use serde_json::Value;
+use std::collections::HashMap;
+use std::str::FromStr;
+use std::sync::Arc;
+use std::time::Duration;
 use tonlib_core::cell::Cell;
+use tonlib_core::tlb_types::tlb::TLB;
 use tonlib_core::TonAddress;
 use tracing::info;
+use reqwest::Client;
 
 use crate::handlers::config::TONApiVersion;
 use crate::handlers::ton_verify_msg::{FetchingError, Message, TonClient};
-trait CellTo {
-    fn cell_to_string(self) -> Result<String, Error>;
 
-    fn cell_to_buffer(self) -> Result<Vec<u8>, Error>;
+trait CellTo {
+    fn cell_to_string(self) -> Result<String, FetchingError>;
+
+    fn cell_to_buffer(self) -> Vec<u8>;
 }
 
 const BYTES_PER_CELL: usize = 96;
 
 impl CellTo for Arc<Cell> {
-    fn cell_to_buffer(self) -> Result<Vec<u8>, Error> {
+    fn cell_to_buffer(self) -> Vec<u8> {
         // we have to revert the chain of cells
         let mut current_cell = Some(self);
         let mut u8_vec = vec![];
@@ -47,11 +49,11 @@ impl CellTo for Arc<Cell> {
                 _ => break,
             }
         }
-        Ok(u8_vec)
+        u8_vec
     }
 
-    fn cell_to_string(self) -> Result<String, Error> {
-        Ok(String::from_utf8(self.cell_to_buffer()?)?)
+    fn cell_to_string(self) -> Result<String, FetchingError> { 
+        String::from_utf8(self.cell_to_buffer()).map_err(|_| FetchingError::InvalidCall)
     }
 }
 
@@ -65,24 +67,21 @@ fn parse_call_contract_log(
         .map_err(|_| FetchingError::InvalidCall)?;
 
     let destination_chain = destination_chain
-        .cell_to_string()
-        .map_err(|_| FetchingError::InvalidCall)?;
+        .cell_to_string()?;
 
     let destination_address = parser
         .next_reference()
         .map_err(|_| FetchingError::InvalidCall)?;
 
     let destination_address = destination_address
-        .cell_to_string()
-        .map_err(|_| FetchingError::InvalidCall)?;
+        .cell_to_string()?;
 
     let payload = parser
         .next_reference()
         .map_err(|_| FetchingError::InvalidCall)?;
 
     let _ = payload
-        .cell_to_buffer()
-        .map_err(|_| FetchingError::InvalidCall)?;
+        .cell_to_buffer();
 
     let source_address = parser
         .load_address()
@@ -94,8 +93,8 @@ fn parse_call_contract_log(
         .try_into()
         .map_err(|_| FetchingError::InvalidCall)?;
 
-    let destination_chain =
-        ChainName::from_str(&destination_chain).map_err(|_| FetchingError::InvalidCall)?;
+    let destination_chain = ChainName::from_str(&destination_chain)
+        .map_err(|_| FetchingError::InvalidCall)?;
 
     return Ok(Message {
         message_id,
@@ -195,13 +194,6 @@ impl TonRpcClient {
         }
     }
 }
-
-use std::any;
-use std::collections::hash_map::Iter;
-use std::collections::HashMap;
-
-use reqwest::{Client, Response}; // TODO: remove that
-use tonlib_core::tlb_types::tlb::TLB;
 
 const OP_CALL_CONTRACT_STR: &str = "0x00000009";
 const OP_CALL_CONTRACT_BYTES: [u8; 4] = [0, 0, 0, 9];
@@ -380,13 +372,13 @@ impl TonClient for TonRpcClient {
 
         let method = "getTransactions";
 
-        let client = Client::new();
         println!(
             "Sending request now {}/{} with get data: {:#?}",
             self.rpc_url, method, data
         );
 
-        let res = client
+        let res = self
+            .client
             .get(&format!("{}/{}", self.rpc_url, method))
             .query(&data)
             .send()
@@ -405,7 +397,7 @@ impl TonClient for TonRpcClient {
         let result: Value = serde_json::from_str(&text).change_context(FetchingError::Client)?;
 
         if let Some(ok) = result.get("ok").and_then(|v| v.as_bool()) {
-            if (!ok) {
+            if !ok {
                 info!("Query returned not ok");
                 return Err(report!(FetchingError::Client));
             }
