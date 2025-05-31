@@ -230,6 +230,7 @@ impl TonClient for TonRpcClient {
             "hash".to_string(),
             tx_hash.tx_hash_as_hex_no_prefix().to_string(),
         );
+        let lt = tx_hash.event_index;
 
         let method = "transactions";
 
@@ -277,6 +278,21 @@ impl TonClient for TonRpcClient {
             } else {
                 info!("Failed to decode gateway address");
                 return Err(report!(FetchingError::Client));
+            }
+        } else {
+            info!("Failed to get gateway address");
+            return Err(report!(FetchingError::Client));
+        }
+
+        // access result["transactions"][0]["lt"] and check if it matches the provided lt
+        if let Some(real_lt) = result
+            .get("transactions")
+            .and_then(|v| v.get(0))
+            .and_then(|v| v.get("lt"))
+            .and_then(|v| v.as_str())
+        {
+            if real_lt != lt.to_string() {
+                return Err(report!(FetchingError::InvalidCall));
             }
         } else {
             info!("Failed to get gateway address");
