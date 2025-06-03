@@ -64,6 +64,8 @@ struct PollStartedEvent {
 
 use thiserror::Error;
 
+use super::ton_verify_verifier_set::VerifierSetConfirmation;
+
 #[derive(Error, Debug)]
 pub enum FetchingError {
     #[error("failed to create client")]
@@ -81,6 +83,12 @@ pub trait TonClient: Send + Sync + 'static {
         tx_hash: &HexTxHash,
         gateway: &TonAddress,
     ) -> error_stack::Result<Message, FetchingError>;
+
+    async fn verify_verifier_set(
+        &self,
+        verifier_set_confirmation: &VerifierSetConfirmation,
+        gateway: &TonAddress,
+    ) -> error_stack::Result<bool, FetchingError>;
 }
 
 pub struct Handler<C>
@@ -121,7 +129,10 @@ where
                 if res == *claimed_message {
                     true
                 } else {
-                    info!("Real message not identical to claimed message");
+                    info!(
+                        "Real message {:?} not identical to claimed message {:?}",
+                        res, claimed_message
+                    );
                     false
                 }
             }

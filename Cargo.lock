@@ -283,6 +283,7 @@ dependencies = [
  "move-core-types",
  "multisig",
  "multiversx-sdk",
+ "num-bigint 0.4.6",
  "num-traits",
  "openssl",
  "pin-project-lite",
