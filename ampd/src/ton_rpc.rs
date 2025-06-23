@@ -608,4 +608,68 @@ mod tests {
         let result = verify_call_contract(&mock_client, &correct_gateway, &expected_message).await;
         assert_eq!(result, true);
     }
+
+    #[tokio::test]
+    async fn should_reject_invalid_call_contract_invalid_gateway() {
+        let mock_client = MockTonClient;
+        print!("Setup mock client");
+
+        let incorrect_gateway = TonAddress::from_base64_url("EQC4ekoPZEt6GG7nGhRUY09wwipirKGmumdrUXXCHX_ZMELQ").unwrap();
+        let expected_message_cell =
+            Arc::new(Cell::from_boc_b64(TEST_EXAMPLE_TX_LOG_CALL_CONTRACT).unwrap());
+        print!("Expected message cell is {:?}", expected_message_cell);
+
+        let example_tx_hash = STANDARD.decode(TEST_EXAMPLE_TX_HASH_CALL_CONTRACT).unwrap();
+        let example_tx_hash: [u8; 32] = example_tx_hash.try_into().unwrap();
+        let message_id = HexTxHash::new(example_tx_hash);
+
+        let expected_message = parse_call_contract_log(message_id, &expected_message_cell).unwrap();
+        print!("Expected message is {:?}", expected_message);
+
+        let result = verify_call_contract(&mock_client, &incorrect_gateway, &expected_message).await;
+        assert_eq!(result, false);
+    }
+
+    #[tokio::test]
+    async fn should_reject_incorrect_call_contract_invalid_hash() {
+        let mock_client = MockTonClient;
+        print!("Setup mock client");
+
+        let correct_gateway = TonAddress::from_base64_url(TEST_GATEWAY_ADDRESS).unwrap();
+        let expected_message_cell =
+            Arc::new(Cell::from_boc_b64(TEST_EXAMPLE_TX_LOG_CALL_CONTRACT).unwrap());
+        print!("Expected message cell is {:?}", expected_message_cell);
+
+        let bad_tx_hash = STANDARD.decode("TbNq7Zr/5q37Y1fQ1wXyFIU/pbFXBfSz8j9TuUD0b64=").unwrap();
+        let bad_tx_hash: [u8; 32] = bad_tx_hash.try_into().unwrap();
+        let bad_message_id = HexTxHash::new(bad_tx_hash);
+
+        let expected_message = parse_call_contract_log(bad_message_id, &expected_message_cell).unwrap();
+        print!("Expected message is {:?}", expected_message);
+
+        let result = verify_call_contract(&mock_client, &correct_gateway, &expected_message).await;
+        assert_eq!(result, false);
+    }
+
+    #[tokio::test]
+    async fn should_reject_incorrect_call_contract_invalid_data() {
+        let mock_client = MockTonClient;
+        print!("Setup mock client");
+
+        let correct_gateway = TonAddress::from_base64_url(TEST_GATEWAY_ADDRESS).unwrap();
+        let expected_message_cell =
+            Arc::new(Cell::from_boc_b64(TEST_EXAMPLE_TX_LOG_CALL_CONTRACT).unwrap());
+        print!("Expected message cell is {:?}", expected_message_cell);
+
+        let example_tx_hash = STANDARD.decode(TEST_EXAMPLE_TX_HASH_CALL_CONTRACT).unwrap();
+        let example_tx_hash: [u8; 32] = example_tx_hash.try_into().unwrap();
+        let message_id = HexTxHash::new(example_tx_hash);
+
+        let mut bad_message = parse_call_contract_log(message_id, &expected_message_cell).unwrap();
+        bad_message.destination_address = String::from("Bad String");
+        print!("Bad message is {:?}", bad_message);
+
+        let result = verify_call_contract(&mock_client, &correct_gateway, &bad_message).await;
+        assert_eq!(result, false);
+    }
 }
