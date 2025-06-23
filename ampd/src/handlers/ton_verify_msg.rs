@@ -20,7 +20,7 @@ use voting_verifier::msg::ExecuteMsg;
 use crate::event_processor::EventHandler;
 use crate::handlers::errors::Error;
 use crate::handlers::errors::Error::DeserializeEvent;
-use crate::ton_rpc::TonClient;
+use crate::ton_rpc::{verify_call_contract, TonClient};
 use crate::types::{Hash, TMAddress};
 
 type Result<T> = error_stack::Result<T, Error>;
@@ -170,11 +170,13 @@ where
             let mut votes = Vec::new();
 
             for m in messages.iter() {
-                let vote = match self.rpc_client.verify_call_contract(&source_gateway_address, m).await {
+                let vote = match verify_call_contract(&self.rpc_client, &source_gateway_address, m)
+                    .await
+                {
                     true => Vote::SucceededOnChain,
                     false => Vote::FailedOnChain,
                 };
-                
+
                 votes.push(vote);
             }
             info!(

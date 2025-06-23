@@ -19,7 +19,7 @@ use voting_verifier::msg::ExecuteMsg;
 
 use crate::event_processor::EventHandler;
 use crate::handlers::errors::Error;
-use crate::ton_rpc::TonClient;
+use crate::ton_rpc::{verify_verifier_set, TonClient};
 use crate::types::TMAddress;
 
 type Result<T> = error_stack::Result<T, Error>;
@@ -128,10 +128,9 @@ where
         .in_scope(|| async {
             info!("ready to verify a new verifier set in poll");
 
-            match self
-                .rpc_client
-                .verify_verifier_set(&source_gateway_address, &verifier_set)
-                .await {
+            match verify_verifier_set(&self.rpc_client, &source_gateway_address, &verifier_set)
+                .await
+            {
                 true => Vote::SucceededOnChain,
                 false => Vote::NotFound,
             }
