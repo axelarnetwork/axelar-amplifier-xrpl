@@ -1,7 +1,7 @@
 use std::convert::TryInto;
 
 use async_trait::async_trait;
-use axelar_wasm_std::msg_id::HexTxHashAndEventIndex;
+use axelar_wasm_std::msg_id::HexTxHash;
 use axelar_wasm_std::voting::{PollId, Vote};
 use cosmrs::cosmwasm::MsgExecuteContract;
 use cosmrs::tx::Msg;
@@ -17,16 +17,16 @@ use tonlib_core::TonAddress;
 use tracing::{info, info_span};
 use voting_verifier::msg::ExecuteMsg;
 
-use super::ton_verify_msg::TonClient;
 use crate::event_processor::EventHandler;
 use crate::handlers::errors::Error;
+use crate::ton_rpc::TonClient;
 use crate::types::TMAddress;
 
 type Result<T> = error_stack::Result<T, Error>;
 
 #[derive(Deserialize, Debug)]
 pub struct VerifierSetConfirmation {
-    pub message_id: HexTxHashAndEventIndex,
+    pub message_id: HexTxHash,
     pub verifier_set: VerifierSet,
 }
 
@@ -67,18 +67,6 @@ where
             rpc_client,
             latest_block_height,
         }
-    }
-
-    async fn verify_signers(
-        &self,
-        source_gateway_address: &TonAddress,
-        claimed_verifier_set: &VerifierSetConfirmation,
-    ) -> bool {
-        (self
-            .rpc_client
-            .verify_verifier_set(claimed_verifier_set, source_gateway_address)
-            .await)
-            .unwrap_or(false)
     }
 
     fn vote_msg(&self, poll_id: PollId, vote: Vote) -> MsgExecuteContract {
@@ -140,14 +128,12 @@ where
         .in_scope(|| async {
             info!("ready to verify a new verifier set in poll");
 
-            let is_same = self
-                .verify_signers(&source_gateway_address, &verifier_set)
-                .await;
-
-            if is_same {
-                Vote::SucceededOnChain
-            } else {
-                Vote::NotFound
+            match self
+                .rpc_client
+                .verify_verifier_set(&source_gateway_address, &verifier_set)
+                .await {
+                true => Vote::SucceededOnChain,
+                false => Vote::NotFound,
             }
         });
 

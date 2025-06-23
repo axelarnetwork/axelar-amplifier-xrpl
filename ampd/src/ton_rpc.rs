@@ -18,7 +18,7 @@ use tonlib_core::tlb_types::traits::TLBObject;
 use tonlib_core::TonAddress;
 use tracing::info;
 
-use crate::handlers::ton_verify_msg::{FetchingError, Message, TonClient};
+use crate::handlers::ton_verify_msg::{FetchingError, Message};
 use crate::handlers::ton_verify_verifier_set::VerifierSetConfirmation;
 
 trait CellTo {
@@ -215,34 +215,28 @@ pub struct MockTonClient;
 
 #[async_trait]
 impl TonClient for MockTonClient {
-    async fn verify_verifier_set(
+    async fn get_log(
         &self,
-        _verifier_set_confirmation: &VerifierSetConfirmation,
-        _gateway: &TonAddress,
-    ) -> error_stack::Result<bool, FetchingError> {
-        Ok(true)
+        contract_address: &TonAddress,
+        tx_hash: &HexTxHash,
+    ) -> error_stack::Result<TonLog, FetchingError> {
+        Err(report!(FetchingError::Client))
     }
 
-    async fn get_tx(
+    async fn verify_call_contract(
         &self,
-        _tx_hash: &HexTxHash,
-        _gateway: &TonAddress,
-    ) -> error_stack::Result<Message, FetchingError> {
-        Ok(Message {
-            message_id: HexTxHash::from_str(
-                "949b738e28e46ca279bd339f6967f973f4e1f8f025252be8222c97e115d24e6d",
-            )
-            .unwrap(),
-            destination_address: "0x72D489FC91f33011EC46Efa78d37E02dCC335453".to_string(),
-            destination_chain: ChainName::from_str("eth-sepolia").unwrap(),
-            source_address: "0QCJitE8BZ8qOmlXagEMQa8jm0h7xVXqvrmliU3rESmTMCkR"
-                .parse()
-                .unwrap(),
-            payload_hash: H256::from_str(
-                "72a1d814ac3bc3f32c851b71e1189910e10506aaabf6416303f84d385a736493",
-            )
-            .unwrap(),
-        })
+        gateway: &TonAddress,
+        expected_message: &Message,
+    ) -> bool {
+        false
+    }
+
+    async fn verify_verifier_set(
+        &self,
+        gateway: &TonAddress,
+        expected_verifier_set: &VerifierSetConfirmation, 
+    ) -> bool {
+        false
     }
 }
 
@@ -258,21 +252,46 @@ impl TonRpcClient {
     }
 }
 
-const OP_SIGNERS_ROTATED_LOG: &str = "0x0000002A";
-const OP_CALL_CONTRACT_STR: &str = "0x00000009";
+const OP_SIGNERS_ROTATED: u32 = 0x0000002A;
+const OP_CALL_CONTRACT: u32 = 0x00000009;
+
+pub struct TonLog {
+    opcode: u32,
+    cell: Arc<Cell>,
+}
+
+#[async_trait::async_trait]
+pub trait TonClient: Send + Sync + 'static {
+    async fn get_log(
+        &self,
+        contract_address: &TonAddress,
+        tx_hash: &HexTxHash,
+    ) -> error_stack::Result<TonLog, FetchingError>;
+
+    async fn verify_call_contract(
+        &self,
+        gateway: &TonAddress,
+        expected_message: &Message,
+    ) -> bool;
+
+    async fn verify_verifier_set(
+        &self,
+        gateway: &TonAddress,
+        expected_verifier_set: &VerifierSetConfirmation, 
+    ) -> bool;
+}
 
 #[async_trait]
 impl TonClient for TonRpcClient {
-    async fn verify_verifier_set(
+    async fn get_log(
         &self,
-        verifier_set_confirmation: &VerifierSetConfirmation,
-        gateway: &TonAddress,
-    ) -> error_stack::Result<bool, FetchingError> {
+        contract_address: &TonAddress,
+        tx_hash: &HexTxHash,
+    ) -> error_stack::Result<TonLog, FetchingError> {
         let mut data: HashMap<String, String> = HashMap::new();
         data.insert(
             "hash".to_string(),
-            verifier_set_confirmation
-                .message_id
+            tx_hash
                 .tx_hash_as_hex_no_prefix()
                 .to_string(),
         );
@@ -309,7 +328,7 @@ impl TonClient for TonRpcClient {
             return Err(report!(FetchingError::Client));
         }
 
-        // access result["transactions"][0]["account"] and check if it matches the gateway address
+        // access result["transactions"][0]["account"] and check if it matches the provided address
         if let Some(address) = result
             .get("transactions")
             .and_then(|v| v.get(0))
@@ -317,16 +336,16 @@ impl TonClient for TonRpcClient {
             .and_then(|v| v.as_str())
         {
             if let Ok(address) = TonAddress::from_hex_str(address) {
-                if address != *gateway {
-                    info!("Call contract was emitted on a contract that is not the gateway");
+                if address != *contract_address {
+                    info!("Log was emitted on a different contract");
                     return Err(report!(FetchingError::InvalidCall));
                 }
             } else {
-                info!("Failed to decode gateway address");
+                info!("Failed to decode contract address");
                 return Err(report!(FetchingError::Client));
             }
         } else {
-            info!("Failed to get gateway address");
+            info!("Failed to get contract address");
             return Err(report!(FetchingError::Client));
         }
 
@@ -339,7 +358,7 @@ impl TonClient for TonRpcClient {
             .and_then(|v| v.as_bool())
         {
             if aborted {
-                info!("Call contract aborted");
+                info!("Transaction aborted");
                 return Err(report!(FetchingError::InvalidCall));
             }
         } else {
@@ -347,24 +366,28 @@ impl TonClient for TonRpcClient {
             return Err(report!(FetchingError::Client));
         }
 
-        // access result["transactions"][0]["in_msg"]["opcode"] and check if it is OP_CALL_CONTRACT
-        if let Some(opcode) = result
+        let opcode: u32;
+        // get result["transactions"][0]["in_msg"]["opcode"]
+        if let Some(_opcode) = result
             .get("transactions")
             .and_then(|v| v.get(0))
             .and_then(|v| v.get("in_msg"))
             .and_then(|v| v.get("opcode"))
             .and_then(|v| v.as_str())
         {
-            if opcode != OP_SIGNERS_ROTATED_LOG {
-                info!("Opcode is different from OP_CALL_CONTRACT");
-                return Err(report!(FetchingError::InvalidCall));
+            match u32::from_str_radix(_opcode.trim_start_matches("0x"), 16) {
+                Ok(_opcode) => {opcode = _opcode},
+                Err(_) => {
+                    info!("Failed to decode opcode");
+                    return Err(report!(FetchingError::InvalidCall));
+                }
             }
         } else {
             info!("Failed to get log at expected index");
             return Err(report!(FetchingError::InvalidCall));
         }
 
-        // access result["transactions"][0]["out_msgs"][0]["message_content"]["body"], load it as a cell and check if it matches the given values
+        // access result["transactions"][0]["out_msgs"][0]["message_content"]["body"], load it as a cell
         if let Some(log) = result
             .get("transactions")
             .and_then(|v| v.get(0))
@@ -375,17 +398,11 @@ impl TonClient for TonRpcClient {
             .and_then(|v| v.as_str())
         {
             // attempt to parse this log as a cell
-            if let Ok(log) = Cell::from_boc_b64(log).and_then(|c| Arc::from_cell(&c)) {
-                if let Ok(derived_weighted_signers) = parse_rotate_signers_log(&log) {
-                    let expected_weighted_signers =
-                        WeightedSigners::try_from(verifier_set_confirmation.verifier_set.clone())
-                            .unwrap();
-
-                    return Ok(derived_weighted_signers == expected_weighted_signers);
-                } else {
-                    info!("Failed to load event body as a contract call data");
-                    return Err(report!(FetchingError::InvalidCall));
-                }
+            if let Ok(cell) = Cell::from_boc_b64(log).and_then(|c| Arc::from_cell(&c)) {
+                return Ok(TonLog {
+                    opcode,
+                    cell,
+                })
             } else {
                 info!("Failed to load event body as a cell");
                 return Err(report!(FetchingError::InvalidCall));
@@ -394,130 +411,77 @@ impl TonClient for TonRpcClient {
             info!("Failed to load event body");
             return Err(report!(FetchingError::InvalidCall));
         }
+    } 
+
+
+    async fn verify_call_contract(
+        &self,
+        gateway: &TonAddress,
+        expected_message: &Message,
+    ) -> bool {
+        let log: Result<TonLog, _> = self.get_log(gateway, &expected_message.message_id).await;
+        if log.is_err() {
+            return false;
+        }
+        let log = log.unwrap();
+
+        // check that opcode is correct
+        if log.opcode != OP_CALL_CONTRACT {
+            info!("Invalid opcode, got {} expected {}", log.opcode, OP_CALL_CONTRACT);
+            return false;
+        }
+
+        // decode cell
+        if let Ok(result) = parse_call_contract_log(expected_message.message_id.clone(), &log.cell) {
+            // compare
+            if result != *expected_message {
+                info!("Claimed event is incorrect: Got {:?} but expected {:?}", result, expected_message);
+                return false;
+            }
+        } else {
+            info!("Failed to parse event body as a contract call data");
+            return false;
+        }
+        return true;
+
     }
 
-    async fn get_tx(
+    async fn verify_verifier_set(
         &self,
-        tx_hash: &HexTxHash,
         gateway: &TonAddress,
-    ) -> error_stack::Result<Message, FetchingError> {
-        let mut data: HashMap<String, String> = HashMap::new();
-        data.insert("hash".to_string(), tx_hash.to_string());
+        expected_verifier_set: &VerifierSetConfirmation, 
+    ) -> bool {
+        let log: Result<TonLog, _> = self.get_log(gateway, &expected_verifier_set.message_id).await;
+        if log.is_err() {
+            return false;
+        }
+        let log = log.unwrap();
 
-        let method = "transactions";
-
-        let client = Client::new();
-
-        let res = client
-            .get(format!("{}/{}", self.rpc_url, method))
-            .query(&data)
-            .send()
-            .await
-            .change_context(FetchingError::Client)?;
-
-        let status = res.status();
-        let text = res.text().await.change_context(FetchingError::Client)?;
-
-        if !status.is_success() {
-            info!("RPC query failed");
-            return Err(report!(FetchingError::Client));
+        // check that opcode is correct
+        if log.opcode != OP_SIGNERS_ROTATED {
+            info!("Invalid opcode, got {} expected {}", log.opcode, OP_SIGNERS_ROTATED);
+            return false;
         }
 
-        let result: Value = serde_json::from_str(&text).change_context(FetchingError::Client)?;
+        // decode cell
+        if let Ok(derived_weighted_signers) = parse_rotate_signers_log(&log.cell) {
+            let expected_weighted_signers =
+                WeightedSigners::try_from(expected_verifier_set.verifier_set.clone());
+            if expected_weighted_signers.is_err() {
+                info!("Failed to convert verifier set to weighted signers");
+                return false;
+            }
+            let expected_weighted_signers = expected_weighted_signers.unwrap();
 
-        if let Some(transactions) = result.get("transactions").and_then(|v| v.as_array()) {
-            // check the size of the response
-            if transactions.is_empty() {
-                info!("Transaction not found");
-                return Err(report!(FetchingError::NotFound));
+            if derived_weighted_signers != expected_weighted_signers {
+                info!("Claimed event is incorrect: Got {:?} but expected {:?}", derived_weighted_signers, expected_weighted_signers);
+                return false;
             }
         } else {
-            info!("Failed to get transactions array");
-            return Err(report!(FetchingError::Client));
+            info!("Failed to parse event body as a contract call data");
+            return false;
         }
-
-        // access result["transactions"][0]["account"] and check if it matches the gateway address
-        if let Some(address) = result
-            .get("transactions")
-            .and_then(|v| v.get(0))
-            .and_then(|v| v.get("account"))
-            .and_then(|v| v.as_str())
-        {
-            if let Ok(address) = TonAddress::from_hex_str(address) {
-                if address != *gateway {
-                    info!("Call contract was emitted on a contract that is not the gateway");
-                    return Err(report!(FetchingError::InvalidCall));
-                }
-            } else {
-                info!("Failed to decode gateway address");
-                return Err(report!(FetchingError::Client));
-            }
-        } else {
-            info!("Failed to get gateway address");
-            return Err(report!(FetchingError::Client));
-        }
-
-        // access result["transactions"][0]["description"]["aborted"] and check if it is false
-        if let Some(aborted) = result
-            .get("transactions")
-            .and_then(|v| v.get(0))
-            .and_then(|v| v.get("description"))
-            .and_then(|v| v.get("aborted"))
-            .and_then(|v| v.as_bool())
-        {
-            if aborted {
-                info!("Call contract aborted");
-                return Err(report!(FetchingError::InvalidCall));
-            }
-        } else {
-            info!("Failed to get aborted value");
-            return Err(report!(FetchingError::Client));
-        }
-
-        // access result["transactions"][0]["in_msg"]["opcode"] and check if it is OP_CALL_CONTRACT
-        if let Some(opcode) = result
-            .get("transactions")
-            .and_then(|v| v.get(0))
-            .and_then(|v| v.get("in_msg"))
-            .and_then(|v| v.get("opcode"))
-            .and_then(|v| v.as_str())
-        {
-            if opcode != OP_CALL_CONTRACT_STR {
-                info!("Opcode is different from OP_CALL_CONTRACT");
-                return Err(report!(FetchingError::InvalidCall));
-            }
-        } else {
-            info!("Failed to get log at expected index");
-            return Err(report!(FetchingError::InvalidCall));
-        }
-
-        // access result["transactions"][0]["out_msgs"][0]["message_content"]["body"], load it as a cell and check if it matches the given values
-        if let Some(log) = result
-            .get("transactions")
-            .and_then(|v| v.get(0))
-            .and_then(|v| v.get("out_msgs"))
-            .and_then(|v| v.get(0))
-            .and_then(|v| v.get("message_content"))
-            .and_then(|v| v.get("body"))
-            .and_then(|v| v.as_str())
-        {
-            // attempt to parse this log as a cell
-            if let Ok(log) = Cell::from_boc_b64(log).and_then(|c| Arc::from_cell(&c)) {
-                // parse it now
-                if let Ok(result) = parse_call_contract_log(tx_hash.clone(), &log) {
-                    return Ok(result);
-                } else {
-                    info!("Failed to load event body as a contract call data");
-                    return Err(report!(FetchingError::InvalidCall));
-                }
-            } else {
-                info!("Failed to load event body as a cell");
-                return Err(report!(FetchingError::InvalidCall));
-            }
-        } else {
-            info!("Failed to load event body");
-            return Err(report!(FetchingError::InvalidCall));
-        }
+        return true;
     }
 }
 

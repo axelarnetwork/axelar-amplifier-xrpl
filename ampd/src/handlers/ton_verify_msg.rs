@@ -20,6 +20,7 @@ use voting_verifier::msg::ExecuteMsg;
 use crate::event_processor::EventHandler;
 use crate::handlers::errors::Error;
 use crate::handlers::errors::Error::DeserializeEvent;
+use crate::ton_rpc::TonClient;
 use crate::types::{Hash, TMAddress};
 
 type Result<T> = error_stack::Result<T, Error>;
@@ -64,8 +65,6 @@ struct PollStartedEvent {
 
 use thiserror::Error;
 
-use super::ton_verify_verifier_set::VerifierSetConfirmation;
-
 #[derive(Error, Debug)]
 pub enum FetchingError {
     #[error("failed to create client")]
@@ -74,21 +73,6 @@ pub enum FetchingError {
     InvalidCall,
     #[error("transaction not found on chain")]
     NotFound,
-}
-
-#[async_trait::async_trait]
-pub trait TonClient: Send + Sync + 'static {
-    async fn get_tx(
-        &self,
-        tx_hash: &HexTxHash,
-        gateway: &TonAddress,
-    ) -> error_stack::Result<Message, FetchingError>;
-
-    async fn verify_verifier_set(
-        &self,
-        verifier_set_confirmation: &VerifierSetConfirmation,
-        gateway: &TonAddress,
-    ) -> error_stack::Result<bool, FetchingError>;
 }
 
 pub struct Handler<C>
@@ -116,27 +100,6 @@ where
             voting_verifier_contract,
             rpc_client,
             latest_block_height,
-        }
-    }
-
-    async fn verify_tx(&self, claimed_message: &Message, gateway: &TonAddress) -> bool {
-        match self
-            .rpc_client
-            .get_tx(&claimed_message.message_id, gateway)
-            .await
-        {
-            Ok(res) => {
-                if res == *claimed_message {
-                    true
-                } else {
-                    info!(
-                        "Real message {:?} not identical to claimed message {:?}",
-                        res, claimed_message
-                    );
-                    false
-                }
-            }
-            Err(_) => false,
         }
     }
 
@@ -207,12 +170,11 @@ where
             let mut votes = Vec::new();
 
             for m in messages.iter() {
-                let success = self.verify_tx(m, &source_gateway_address).await;
-                let vote = if success {
-                    Vote::SucceededOnChain
-                } else {
-                    Vote::NotFound
+                let vote = match self.rpc_client.verify_call_contract(&source_gateway_address, m).await {
+                    true => Vote::SucceededOnChain,
+                    false => Vote::FailedOnChain,
                 };
+                
                 votes.push(vote);
             }
             info!(
