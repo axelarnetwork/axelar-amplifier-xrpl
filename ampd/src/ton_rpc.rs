@@ -24,6 +24,7 @@ use tracing::info;
 use crate::handlers::ton_verify_msg::{FetchingError, Message};
 use crate::handlers::ton_verify_verifier_set::VerifierSetConfirmation;
 
+// Note: WeightedSigners is empty (has signatures set to 0)
 fn parse_rotate_signers_log(
     cell: &Arc<Cell>,
 ) -> error_stack::Result<WeightedSigners, FetchingError> {

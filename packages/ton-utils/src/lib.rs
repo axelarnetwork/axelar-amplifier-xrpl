@@ -54,14 +54,14 @@ fn buffer_to_cell(buffer: Vec<u8>) -> Result<Cell, TonCellError> {
     build_cell_chain(0, buffer)
 }
 
-#[derive(Clone, Debug)]
-struct TonProof {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WeightedSigners {
     dict: HashMap<u16, WeightedSigner>,
     threshold: u128,
     nonce: u128,
 }
 
-impl TonProof {
+impl WeightedSigners {
     pub fn new(set: &VerifierSet, signatures: Vec<SignerWithSig>) -> Self {
         let nonce = set.created_at as u128;
         let threshold = set.threshold.into();
@@ -87,7 +87,7 @@ impl TonProof {
             })
             .collect();
 
-        TonProof {
+        WeightedSigners {
             dict,
             threshold,
             nonce,
@@ -138,23 +138,7 @@ impl WeightedSigner {
     }
 }
 
-#[derive(PartialEq, Debug)]
-pub struct WeightedSigners {
-    dict: HashMap<u16, WeightedSigner>,
-    threshold: u128,
-    nonce: u128,
-}
-
-impl WeightedSigners {
-    pub fn new(dict: HashMap<u16, WeightedSigner>, threshold: u128, nonce: u128) -> Self {
-        WeightedSigners {
-            dict,
-            threshold,
-            nonce,
-        }
-    }
-}
-
+// Creates a WeightedSigners that has empty signatures
 impl TryFrom<VerifierSet> for WeightedSigners {
     type Error = String;
 
@@ -180,11 +164,11 @@ impl TryFrom<VerifierSet> for WeightedSigners {
             );
         }
 
-        Ok(WeightedSigners::new(
+        Ok(WeightedSigners {
             dict,
-            verifier_set.threshold.u128(),
-            verifier_set.created_at as u128,
-        ))
+            threshold: verifier_set.threshold.u128(),
+            nonce: verifier_set.created_at as u128,
+        })
     }
 }
 
@@ -248,15 +232,15 @@ pub fn cell_parse_rotate_signers_log(
 ) -> error_stack::Result<WeightedSigners, TonCellError> {
     let mut parser = cell.parser();
 
-    let dict = parser
-        .load_dict(16, key_reader, val_reader)?;
-    let threshold = parser
-        .load_uint(128)?;
-    let nonce = parser
-        .load_uint(256)?;
+    let dict = parser.load_dict(16, key_reader, val_reader)?;
+    let threshold = parser.load_uint(128)?;
+    let nonce = parser.load_uint(256)?;
 
-    let derived_weighted_signers =
-        WeightedSigners::new(dict, threshold.to_u128().unwrap(), nonce.to_u128().unwrap());
+    let derived_weighted_signers = WeightedSigners {
+        dict,
+        threshold: threshold.to_u128().unwrap(),
+        nonce: nonce.to_u128().unwrap(),
+    };
 
     Ok(derived_weighted_signers)
 }
@@ -313,7 +297,7 @@ fn construct_proof(
     verifier_set: &VerifierSet,
     signatures: Vec<SignerWithSig>,
 ) -> Result<Cell, TonCellError> {
-    let proof = TonProof::new(verifier_set, signatures);
+    let proof = WeightedSigners::new(verifier_set, signatures);
     proof.to_cell()
 }
 
