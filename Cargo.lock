@@ -12526,6 +12526,7 @@ dependencies = [
  "error-stack",
  "multisig",
  "num-bigint 0.4.6",
+ "num-traits",
  "router-api",
  "sha3",
  "tonlib-core",

@@ -11,6 +11,7 @@ cosmwasm-std = "2.1.4"
 error-stack = { workspace = true }
 multisig = { workspace = true, features = ["library"] }
 num-bigint = "0.4.6"
+num-traits = { workspace = true }
 router-api = { workspace = true }
 sha3 = { workspace = true }
 tonlib-core = "0.24.6"

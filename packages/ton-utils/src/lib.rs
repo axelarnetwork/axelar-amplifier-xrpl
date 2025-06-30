@@ -9,9 +9,10 @@ use multisig::key::{PublicKey, Signature};
 use multisig::msg::SignerWithSig;
 use multisig::verifier_set::VerifierSet;
 use num_bigint::BigUint;
+use num_traits::ToPrimitive;
 use router_api::Message;
 use sha3::{Digest, Keccak256};
-use tonlib_core::cell::{Cell, CellBuilder, TonCellError};
+use tonlib_core::cell::{Cell, CellBuilder, CellParser, TonCellError};
 use tonlib_core::tlb_types::traits::TLBObject;
 use tonlib_core::TonAddress;
 
@@ -107,8 +108,8 @@ impl TonProof {
     }
 }
 
-#[derive(Clone, Debug, Copy)]
-struct WeightedSigner {
+#[derive(Clone, Debug, Copy, PartialEq, Eq)]
+pub struct WeightedSigner {
     signer: [u8; SIGNER_PUBKEY_BYTES],
     weight: u128,
     signature: [u8; SIGNATURE_BYTES],
@@ -135,6 +136,168 @@ impl WeightedSigner {
         assert!(bytes.len() == WEIGHTED_SIGNER_BYTES);
         bytes
     }
+}
+
+#[derive(PartialEq, Debug)]
+pub struct WeightedSigners {
+    dict: HashMap<u16, WeightedSigner>,
+    threshold: u128,
+    nonce: u128,
+}
+
+impl WeightedSigners {
+    pub fn new(dict: HashMap<u16, WeightedSigner>, threshold: u128, nonce: u128) -> Self {
+        WeightedSigners {
+            dict,
+            threshold,
+            nonce,
+        }
+    }
+}
+
+impl TryFrom<VerifierSet> for WeightedSigners {
+    type Error = String;
+
+    fn try_from(verifier_set: VerifierSet) -> std::result::Result<Self, Self::Error> {
+        let mut dict = HashMap::new();
+
+        for (index_str, signer) in verifier_set.signers {
+            let index: u16 = index_str.parse().map_err(|_| "Invalid index key")?;
+            let signer_bytes = match signer.pub_key {
+                PublicKey::Ed25519(ref hex) => hex.to_vec(),
+                _ => return Err("Unsupported public key type".to_string()),
+            };
+
+            dict.insert(
+                index,
+                WeightedSigner {
+                    signer: signer_bytes
+                        .try_into()
+                        .map_err(|_| "Expected 32-byte public key")?,
+                    weight: signer.weight.u128(),
+                    signature: [0; 64],
+                },
+            );
+        }
+
+        Ok(WeightedSigners::new(
+            dict,
+            verifier_set.threshold.u128(),
+            verifier_set.created_at as u128,
+        ))
+    }
+}
+
+trait CellTo {
+    fn cell_to_string(self) -> String;
+
+    fn cell_to_buffer(self) -> Vec<u8>;
+}
+
+impl CellTo for Arc<Cell> {
+    fn cell_to_buffer(self) -> Vec<u8> {
+        // we have to revert the chain of cells
+        let mut current_cell = Some(self);
+        let mut u8_vec = vec![];
+
+        while let Some(cell) = current_cell {
+            let mut parser = cell.parser();
+            for _ in 0..BYTES_PER_CELL {
+                let next_byte = match parser.load_uint(8) {
+                    Ok(internal) => internal.to_bytes_be()[0],
+                    Err(_) => break, // this means we are done
+                };
+                u8_vec.push(next_byte);
+            }
+            match parser.next_reference() {
+                Ok(r) => current_cell = Some(r),
+                _ => break,
+            }
+        }
+        u8_vec
+    }
+
+    fn cell_to_string(self) -> String {
+        String::from_utf8_lossy(&self.cell_to_buffer()).into()
+    }
+}
+
+fn key_reader(key: &BigUint) -> std::result::Result<u16, TonCellError> {
+    Ok(key.to_u16().unwrap())
+}
+
+fn val_reader(parser: &mut CellParser) -> std::result::Result<WeightedSigner, TonCellError> {
+    let signer_bytes = parser.load_bits(256)?;
+    let signer: [u8; 32] = signer_bytes
+        .try_into()
+        .map_err(|_| TonCellError::InternalError("Failed to convert signer bytes".to_string()))?;
+
+    let weight = parser.load_uint(128)?;
+    let weight = weight.to_u128().unwrap();
+
+    let signature_bytes = parser.load_bits(512)?;
+    let signature: [u8; 64] = signature_bytes.try_into().map_err(|_| {
+        TonCellError::InternalError("Failed to convert signature bytes".to_string())
+    })?;
+
+    Ok(WeightedSigner::new(signer, weight, signature))
+}
+
+pub fn cell_parse_rotate_signers_log(
+    cell: &Arc<Cell>,
+) -> error_stack::Result<WeightedSigners, TonCellError> {
+    let mut parser = cell.parser();
+
+    let dict = parser
+        .load_dict(16, key_reader, val_reader)?;
+    let threshold = parser
+        .load_uint(128)?;
+    let nonce = parser
+        .load_uint(256)?;
+
+    let derived_weighted_signers =
+        WeightedSigners::new(dict, threshold.to_u128().unwrap(), nonce.to_u128().unwrap());
+
+    Ok(derived_weighted_signers)
+}
+
+pub fn cell_parse_call_contract_log(
+    cell: &Arc<Cell>,
+) -> error_stack::Result<
+    (
+        [u8; 32],
+        std::string::String,
+        std::string::String,
+        TonAddress,
+    ),
+    TonCellError,
+> {
+    let mut parser = cell.parser();
+    let destination_chain = parser.next_reference()?;
+
+    let destination_chain = destination_chain.cell_to_string();
+
+    let destination_address = parser.next_reference()?;
+
+    let destination_address = destination_address.cell_to_string();
+
+    let payload = parser.next_reference()?;
+
+    let _ = payload.cell_to_buffer();
+
+    let source_address = parser.load_address()?;
+
+    let payload_hash: [u8; 32] = parser
+        .load_bits(256)?
+        .try_into()
+        .map_err(|_| TonCellError::InternalError("".to_owned()))?;
+
+    Ok((
+        payload_hash,
+        destination_address,
+        destination_chain,
+        source_address,
+    ))
 }
 
 // Custom value writer for WeightedSigner
