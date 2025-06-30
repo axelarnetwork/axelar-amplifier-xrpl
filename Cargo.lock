@@ -323,6 +323,7 @@ dependencies = [
  "tokio-stream",
  "tokio-util",
  "toml 0.5.11",
+ "ton-utils",
  "tonic 0.13.1",
  "tonic-build",
  "tonlib-core",
@@ -6421,6 +6422,7 @@ dependencies = [
  "stellar-xdr",
  "sui-gateway",
  "thiserror 1.0.69",
+ "ton-utils",
  "tonlib-core",
  "voting-verifier",
 ]
@@ -12514,6 +12516,20 @@ name = "toml_write"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bfb942dfe1d8e29a7ee7fcbde5bd2b9a25fb89aa70caea2eba3bee836ff41076"
+
+[[package]]
+name = "ton-utils"
+version = "0.1.0"
+dependencies = [
+ "axelar-wasm-std",
+ "cosmwasm-std",
+ "error-stack",
+ "multisig",
+ "num-bigint 0.4.6",
+ "router-api",
+ "sha3",
+ "tonlib-core",
+]
 
 [[package]]
 name = "tonic"

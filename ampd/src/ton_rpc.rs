@@ -13,6 +13,7 @@ use num_traits::ToPrimitive;
 use reqwest::Client;
 use router_api::ChainName;
 use serde_json::Value;
+use ton_utils::build_cell_chain;
 use tonlib_core::cell::{Cell, CellParser, TonCellError};
 use tonlib_core::tlb_types::traits::TLBObject;
 use tonlib_core::TonAddress;
@@ -482,6 +483,9 @@ mod tests {
     const TEST_GATEWAY_ADDRESS: &str = "EQCd5sQG0Swz5pyNMZfh1a_J7GUykPQDr0oFMUq4oEfes27G";
     const TEST_EXAMPLE_TX_LOG_CALL_CONTRACT: &str = "te6cckEBBAEA5QADg4AcPMZ9bgNiMWiFLuLZ3ODT3Qj2rbcRiS/f1NA9opZaWPXUykhs4AH2lBVEFjqex7VaPbPTvuLH5GEs5sIeXm+pcAECAwAcYXZhbGFuY2hlLWZ1amkAVDB4ZDcwNjdBZTNDMzU5ZTgzNzg5MGIyOEI3QkQwZDIwODRDZkRmNDliNQDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAE0hlbGxvIGZyb20gUmVsYXllciEAAAAAAAAAAAAAAAAAne0F4Q==";
     const TEST_EXAMPLE_TX_HASH_CALL_CONTRACT: &str = "jq3K6fvoS5e3DwwW4V2N6pxRyB+9BYYBpn0Ps6Qq7Z8=";
+    const TEST_EXAMPLE_TX_LOG_SIGNER_ROTATION: &str = "te6cckECCAEAAg8AAWGAAAAAAAAAAAAAAAAAAAABgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADAAQICzgIFAgEgAwQA4QDoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAOEQ83AI9ItX54QfRoGk0V9NdHRDrfSHHIRkvVvXeQGZdMAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAIBIAYHAOESB7edy2hV4XJ5ZoIYgG4w/nDBxKeP8bX80qk3+1YFOUAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIADhHm1Vi6P5lT5QHixEuipi6eQH4U65pW+1+DjkQutBJZkAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACDebNbp";
+    const TEST_EXAMPLE_TX_HASH_SIGNER_ROTATION: &str =
+        "90LLog5oCVb2pkwwUVAloQRX3pyJ0xI54BKqWHDajwo=";
 
     pub struct MockTonClient;
 
@@ -614,7 +618,9 @@ mod tests {
         let mock_client = MockTonClient;
         print!("Setup mock client");
 
-        let incorrect_gateway = TonAddress::from_base64_url("EQC4ekoPZEt6GG7nGhRUY09wwipirKGmumdrUXXCHX_ZMELQ").unwrap();
+        let incorrect_gateway =
+            TonAddress::from_base64_url("EQC4ekoPZEt6GG7nGhRUY09wwipirKGmumdrUXXCHX_ZMELQ")
+                .unwrap();
         let expected_message_cell =
             Arc::new(Cell::from_boc_b64(TEST_EXAMPLE_TX_LOG_CALL_CONTRACT).unwrap());
         print!("Expected message cell is {:?}", expected_message_cell);
@@ -626,7 +632,8 @@ mod tests {
         let expected_message = parse_call_contract_log(message_id, &expected_message_cell).unwrap();
         print!("Expected message is {:?}", expected_message);
 
-        let result = verify_call_contract(&mock_client, &incorrect_gateway, &expected_message).await;
+        let result =
+            verify_call_contract(&mock_client, &incorrect_gateway, &expected_message).await;
         assert_eq!(result, false);
     }
 
@@ -640,11 +647,14 @@ mod tests {
             Arc::new(Cell::from_boc_b64(TEST_EXAMPLE_TX_LOG_CALL_CONTRACT).unwrap());
         print!("Expected message cell is {:?}", expected_message_cell);
 
-        let bad_tx_hash = STANDARD.decode("TbNq7Zr/5q37Y1fQ1wXyFIU/pbFXBfSz8j9TuUD0b64=").unwrap();
+        let bad_tx_hash = STANDARD
+            .decode("TbNq7Zr/5q37Y1fQ1wXyFIU/pbFXBfSz8j9TuUD0b64=")
+            .unwrap();
         let bad_tx_hash: [u8; 32] = bad_tx_hash.try_into().unwrap();
         let bad_message_id = HexTxHash::new(bad_tx_hash);
 
-        let expected_message = parse_call_contract_log(bad_message_id, &expected_message_cell).unwrap();
+        let expected_message =
+            parse_call_contract_log(bad_message_id, &expected_message_cell).unwrap();
         print!("Expected message is {:?}", expected_message);
 
         let result = verify_call_contract(&mock_client, &correct_gateway, &expected_message).await;
@@ -671,5 +681,67 @@ mod tests {
 
         let result = verify_call_contract(&mock_client, &correct_gateway, &bad_message).await;
         assert_eq!(result, false);
+    }
+
+    #[tokio::test]
+    async fn should_accept_correct_signer_rotation() {
+        let mock_client = MockTonClient;
+        print!("Setup mock client");
+
+        let correct_gateway = TonAddress::from_base64_url(TEST_GATEWAY_ADDRESS).unwrap();
+        let expected_message_cell =
+            Arc::new(Cell::from_boc_b64(TEST_EXAMPLE_TX_LOG_SIGNER_ROTATION).unwrap());
+        print!("Expected message cell is {:?}", expected_message_cell);
+
+        let example_tx_hash = STANDARD
+            .decode(TEST_EXAMPLE_TX_HASH_SIGNER_ROTATION)
+            .unwrap();
+        let example_tx_hash: [u8; 32] = example_tx_hash.try_into().unwrap();
+        let message_id = HexTxHash::new(example_tx_hash);
+
+        let expected_message = parse_rotate_signers_log(&expected_message_cell).unwrap();
+
+        let mut signers = BTreeMap::new();
+        let string = "axelar1a7pv7s2ngj0t29jrpecck93af7dhnrpfy295x4".into();
+        let signer;
+        signers.insert(string, signer);
+        let threshold = 10_u128.into();
+        let created_at = 0_u64;
+
+        let verifier_set = VerifierSet {
+            signers,
+            threshold,
+            created_at,
+        };
+
+        let verifier_set_confirmation = VerifierSetConfirmation {
+            message_id,
+            verifier_set,
+        };
+        print!("Expected message is {:?}", verifier_set_confirmation);
+
+        let result =
+            verify_verifier_set(&mock_client, &correct_gateway, &verifier_set_confirmation).await;
+        assert_eq!(result, true);
+    }
+
+    #[allow(clippy::arithmetic_side_effects)]
+    pub fn build_verifier_set(key_type: KeyType, signers: &[TestSigner]) -> VerifierSet {
+        let mut total_weight = Uint128::zero();
+        let participants = signers
+            .iter()
+            .map(|signer| {
+                total_weight += Uint128::one();
+                (
+                    Participant {
+                        address: signer.address.clone(),
+                        weight: Uint128::one().try_into().unwrap(),
+                    },
+                    PublicKey::try_from((key_type, signer.pub_key.clone())).unwrap(),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        VerifierSet::new(participants, total_weight.mul_ceil((2u64, 3u64)), 0)
     }
 }
