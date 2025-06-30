@@ -170,9 +170,18 @@ where
             let mut votes = Vec::new();
 
             for m in messages.iter() {
-                let vote = match verify_call_contract(&self.rpc_client, &source_gateway_address, m)
-                    .await
-                {
+                let log = self
+                    .rpc_client
+                    .get_log(&source_gateway_address, &m.message_id)
+                    .await;
+                if log.is_err() {
+                    print!("Getting log failed: {:?}", log.err());
+                    votes.push(Vote::NotFound); // Vote no
+                    continue;
+                }
+                let log = log.unwrap();
+
+                let vote = match verify_call_contract(log, m) {
                     true => Vote::SucceededOnChain,
                     false => Vote::FailedOnChain,
                 };
