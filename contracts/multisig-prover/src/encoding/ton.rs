@@ -1,39 +1,15 @@
-use std::collections::HashMap;
-use std::str::FromStr;
-use std::sync::Arc;
-
 use axelar_wasm_std::hash::Hash;
 use cosmwasm_std::HexBinary;
 use error_stack::Result;
-use multisig::key::{PublicKey, Signature};
 use multisig::msg::SignerWithSig;
 use multisig::verifier_set::VerifierSet;
-use num_bigint::BigUint;
-use router_api::Message;
-use sha3::{Digest, Keccak256};
 use ton_utils::{
     build_approve_messages_body, build_signer_rotation_body, cell_to_boc_hex,
     compute_approve_messages_hash, compute_signer_rotation_hash,
 };
-use tonlib_core::cell::Cell;
 
 use crate::error::ContractError;
 use crate::payload::Payload;
-
-const OP_APPROVE_MESSAGES: usize = 0x00000028;
-const OP_START_SIGNER_ROTATION: usize = 0x00000014;
-const BYTES_PER_CELL: usize = 96;
-const THRESHOLD_BITS: usize = 128;
-const NONCE_BITS: usize = 256;
-const WEIGHTED_SIGNER_BYTES: usize = 112;
-const DICTIONARY_KEY_BITS: usize = 16;
-const OPCODE_BITS: usize = 32;
-const PAYLOAD_HASH_BITS: usize = 256;
-const BITS_PER_BYTE: usize = 8;
-const SIGNATURE_BITS: usize = 512;
-const SIGNATURE_BYTES: usize = SIGNATURE_BITS / BITS_PER_BYTE;
-const SIGNER_PUBKEY_BITS: usize = 256;
-const SIGNER_PUBKEY_BYTES: usize = SIGNER_PUBKEY_BITS / BITS_PER_BYTE;
 
 pub fn payload_digest(
     domain_separator: &Hash,
