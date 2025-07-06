@@ -60,7 +60,7 @@ fn build_cell_chain(start_index: usize, buffer: Vec<u8>) -> Result<Cell, TonCell
         builder.store_reference(&Arc::new(next_cell))?;
     }
 
-    Ok(builder.build()?)
+    builder.build()
 }
 
 /// A data structure representing a set of weighted signers and an associated signing threshold.
@@ -540,7 +540,7 @@ pub fn build_approve_messages_body(
     builder.store_reference(&Arc::new(proof))?;
     builder.store_reference(&Arc::new(messages))?;
 
-    Ok(builder.build()?)
+    builder.build()
 }
 
 /// Constructs a TON cell representing a "signer rotation" operation, which includes
@@ -567,7 +567,7 @@ pub fn build_signer_rotation_body(
     builder.store_reference(&Arc::new(candidate_config_hash_cell))?;
     builder.store_reference(&Arc::new(proof))?;
 
-    Ok(builder.build()?)
+    builder.build()
 }
 
 /// Calculates the hash of given `Message` slice in the same way as the TON gateway.
