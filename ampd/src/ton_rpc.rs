@@ -6,17 +6,11 @@ use async_trait::async_trait;
 use axelar_wasm_std::msg_id::HexTxHash;
 use error_stack::{report, ResultExt};
 use ethers_core::types::H256;
-use multisig::key::PublicKey;
-use multisig::verifier_set::VerifierSet;
-use num_bigint::BigUint;
-use num_traits::ToPrimitive;
 use reqwest::Client;
 use router_api::ChainName;
 use serde_json::Value;
-use ton_utils::{
-    build_cell_chain, cell_parse_call_contract_log, cell_parse_rotate_signers_log, WeightedSigners,
-};
-use tonlib_core::cell::{Cell, TonCellError};
+use ton_utils::{cell_parse_call_contract_log, cell_parse_rotate_signers_log, WeightedSigners};
+use tonlib_core::cell::Cell;
 use tonlib_core::tlb_types::traits::TLBObject;
 use tonlib_core::TonAddress;
 use tracing::info;

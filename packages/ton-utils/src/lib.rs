@@ -1,9 +1,9 @@
 use std::collections::HashMap;
+use std::result::Result;
 use std::str::FromStr;
 use std::sync::Arc;
 
 use axelar_wasm_std::hash::Hash;
-use error_stack::Result;
 use multisig::key::{PublicKey, Signature};
 use multisig::msg::SignerWithSig;
 use multisig::verifier_set::VerifierSet;
@@ -20,7 +20,6 @@ const OP_START_SIGNER_ROTATION: usize = 0x00000014;
 const BYTES_PER_CELL: usize = 96;
 const THRESHOLD_BITS: usize = 128;
 const NONCE_BITS: usize = 256;
-const WEIGHTED_SIGNER_BYTES: usize = 112;
 const DICTIONARY_KEY_BITS: usize = 16;
 const OPCODE_BITS: usize = 32;
 const PAYLOAD_HASH_BITS: usize = 256;
@@ -30,8 +29,23 @@ const SIGNATURE_BYTES: usize = SIGNATURE_BITS / BITS_PER_BYTE;
 const SIGNER_PUBKEY_BITS: usize = 256;
 const SIGNER_PUBKEY_BYTES: usize = SIGNER_PUBKEY_BITS / BITS_PER_BYTE;
 
+/// Converts a byte buffer into a chain of TON cells.
+///
+/// This function is a  wrapper around `build_cell_chain`,
+/// initiating the recursive construction of a cell chain.
+/// The buffer is segmented into chunks, each stored in a separate cell with
+/// references to subsequent cells as needed.
+///
+/// # Parameters
+/// - `buffer`: A `Vec<u8>` representing the byte data to be encoded into the cell chain.
+///
+
+fn buffer_to_cell(buffer: Vec<u8>) -> Result<Cell, TonCellError> {
+    build_cell_chain(0, buffer)
+}
+
 #[allow(clippy::arithmetic_side_effects)]
-pub fn build_cell_chain(start_index: usize, buffer: Vec<u8>) -> Result<Cell, TonCellError> {
+fn build_cell_chain(start_index: usize, buffer: Vec<u8>) -> Result<Cell, TonCellError> {
     let mut builder = CellBuilder::new();
     let end_index = std::cmp::min(start_index + BYTES_PER_CELL, buffer.len());
 
@@ -49,9 +63,15 @@ pub fn build_cell_chain(start_index: usize, buffer: Vec<u8>) -> Result<Cell, Ton
     Ok(builder.build()?)
 }
 
-fn buffer_to_cell(buffer: Vec<u8>) -> Result<Cell, TonCellError> {
-    build_cell_chain(0, buffer)
-}
+/// A data structure representing a set of weighted signers and an associated signing threshold.
+///
+/// `WeightedSigners` encapsulates a dictionary of individual signers, each with an associated weight
+/// and signature, along with a collective threshold and a nonce.
+///
+/// # Fields
+/// - `dict`: A mapping from signer index (`u16`) to `WeightedSigner`, containing public key, weight, and signature.
+/// - `threshold`: The minimum cumulative weight required for the signatures to be considered valid.
+/// - `nonce`: A value representing the creation time or unique context of the signer set (derived from `VerifierSet::created_at`).
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WeightedSigners {
@@ -60,45 +80,77 @@ pub struct WeightedSigners {
     nonce: u128,
 }
 
+/// Helper function to write a WeightedSigner to a key/value dict cell
+fn val_writer_weighted_signer(
+    builder: &mut CellBuilder,
+    val: WeightedSigner,
+) -> Result<(), TonCellError> {
+    builder.store_slice(&val.to_bytes())?;
+    Ok(())
+}
+
 impl WeightedSigners {
-    pub fn new(set: &VerifierSet, signatures: Vec<SignerWithSig>) -> Self {
+    /// Constructs a new `WeightedSigners` instance from a verifier set and a vector of signer signatures.
+    ///
+    /// This function converts the provided `VerifierSet` into an internal signer dictionary,
+    /// verifying that all signers and signatures use the Ed25519 scheme.
+    ///
+    /// # Parameters
+    /// - `set`: A reference to a `VerifierSet` containing public keys and weight information.
+    /// - `signatures`: A vector of `SignerWithSig`, where each entry corresponds to a signer in `set`.
+    pub fn new(set: &VerifierSet, signatures: Vec<SignerWithSig>) -> Result<Self, String> {
+        if set.signers.len() != signatures.len() {
+            return Err("Require exactly one signature for each signer".to_string());
+        }
+
         let nonce = set.created_at as u128;
         let threshold = set.threshold.into();
 
         // todo: convert set.signers to HashMap<u16, WeightedSigner>,
-        let dict: HashMap<u16, WeightedSigner> = set
+        let maybe_dict: Result<HashMap<u16, WeightedSigner>, String> = set
             .signers
             .values()
             .enumerate()
-            .map(|(i, signer)| {
+            .map(|(i, signer)| -> Result<(u16, WeightedSigner), String> {
                 let pub_key_bytes = match &signer.pub_key {
                     PublicKey::Ed25519(key) => key.as_slice().try_into().unwrap(),
-                    _ => panic!("Only Ed25519 pubkeys are supported in Ton"),
+                    _ => return Err("Only Ed25519 public keys are supported in Ton".to_string()),
                 };
                 let signature_bytes = match &signatures[i].signature {
                     Signature::Ed25519(sig) => sig.as_slice().try_into().unwrap(),
-                    _ => panic!("Only Ed25519 signatures are supported in Ton"),
+                    _ => return Err("Only Ed25519 signatures are supported in Ton".to_string()),
                 };
-                (
+                Ok((
                     u16::try_from(i).unwrap(),
                     WeightedSigner::new(pub_key_bytes, signer.weight.u128(), signature_bytes),
-                )
+                ))
             })
-            .collect();
+            .collect::<Result<HashMap<_, _>, _>>();
 
-        WeightedSigners {
-            dict,
-            threshold,
-            nonce,
+        match maybe_dict {
+            Ok(dict) => Ok(WeightedSigners {
+                dict,
+                threshold,
+                nonce,
+            }),
+            Err(e) => Err(e),
         }
     }
 
+    /// Serializes the `WeightedSigners` into a TON cell.
+    ///
+    /// This method encodes the dictionary of weighted signers, the threshold, and the nonce
+    /// into a `Cell` structure.
     pub fn to_cell(&self) -> Result<Cell, TonCellError> {
         let mut builder = CellBuilder::new();
         let nonce = BigUint::from(self.nonce);
         let threshold = BigUint::from(self.threshold);
 
-        builder.store_dict(DICTIONARY_KEY_BITS, val_writer_buffer, self.dict.clone())?;
+        builder.store_dict(
+            DICTIONARY_KEY_BITS,
+            val_writer_weighted_signer,
+            self.dict.clone(),
+        )?;
         builder.store_uint(THRESHOLD_BITS, &threshold)?;
         builder.store_uint(NONCE_BITS, &nonce)?;
         let dict_cell = builder.build()?;
@@ -107,6 +159,15 @@ impl WeightedSigners {
     }
 }
 
+/// Represents an individual signer with an associated public key, signature, and weight.
+///
+/// This structure is used in the context of weighted multisignature schemes, where
+/// each signer contributes a certain weight toward meeting a collective signing threshold.
+///
+/// # Fields
+/// - `signer`: The Ed25519 public key of the signer, represented as a fixed-size byte array.
+/// - `weight`: The numerical weight associated with the signer, as used in the threshold validation.
+/// - `signature`: The signer's Ed25519 signature, represented as a fixed-size byte array.
 #[derive(Clone, Debug, Copy, PartialEq, Eq)]
 pub struct WeightedSigner {
     signer: [u8; SIGNER_PUBKEY_BYTES],
@@ -115,6 +176,7 @@ pub struct WeightedSigner {
 }
 
 impl WeightedSigner {
+    /// Creates a new `WeightedSigner` instance.
     pub fn new(
         signer: [u8; SIGNER_PUBKEY_BYTES],
         weight: u128,
@@ -127,21 +189,31 @@ impl WeightedSigner {
         }
     }
 
+    /// Serializes the `WeightedSigner` into a contiguous byte vector.
     pub fn to_bytes(self) -> Vec<u8> {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&self.signer);
         bytes.extend_from_slice(&self.weight.to_be_bytes());
         bytes.extend_from_slice(&self.signature);
-        assert!(bytes.len() == WEIGHTED_SIGNER_BYTES);
         bytes
     }
 }
 
-// Creates a WeightedSigners that has empty signatures
+/// Attempts to convert a `VerifierSet` into a `WeightedSigners` instance without signatures.
+///
+/// Each entry in the `VerifierSet` is parsed and transformed into a `WeightedSigner`
+/// with a zero-filled signature. Public keys must be of Ed25519 type and 32 bytes in length.
+/// Dictionary keys are parsed from `String` to `u16`.
+///
+/// # Errors
+/// Returns an `Err(String)` if:
+/// - A dictionary key in the `VerifierSet` cannot be parsed into a `u16`.
+/// - A public key is not of type `Ed25519`.
+/// - A public key cannot be converted into a `[u8; 32]` array (invalid size).
 impl TryFrom<VerifierSet> for WeightedSigners {
     type Error = String;
 
-    fn try_from(verifier_set: VerifierSet) -> std::result::Result<Self, Self::Error> {
+    fn try_from(verifier_set: VerifierSet) -> Result<Self, Self::Error> {
         let mut dict = HashMap::new();
 
         for (index_str, signer) in verifier_set.signers {
@@ -171,6 +243,15 @@ impl TryFrom<VerifierSet> for WeightedSigners {
     }
 }
 
+/// A trait providing utility methods to extract structured data from a TON cell chain.
+///
+/// This trait is intended to be the inverse operation of `buffer_to_cell`, enabling
+/// the deserialization of data stored across a chain of cells back into its original
+/// binary or textual form.
+///
+/// The trait assumes that the cell chain was constructed using a linear layout,
+/// such as from `buffer_to_cell` or `build_cell_chain`, where each cell contains
+/// a chunk of raw bytes and a reference to the next cell.
 trait CellTo {
     fn cell_to_string(self) -> String;
 
@@ -179,7 +260,6 @@ trait CellTo {
 
 impl CellTo for Arc<Cell> {
     fn cell_to_buffer(self) -> Vec<u8> {
-        // we have to revert the chain of cells
         let mut current_cell = Some(self);
         let mut u8_vec = vec![];
 
@@ -205,11 +285,13 @@ impl CellTo for Arc<Cell> {
     }
 }
 
-fn key_reader(key: &BigUint) -> std::result::Result<u16, TonCellError> {
+/// Helper function to read the key from a key/value dict cell
+fn key_reader(key: &BigUint) -> Result<u16, TonCellError> {
     Ok(key.to_u16().unwrap())
 }
 
-fn val_reader(parser: &mut CellParser) -> std::result::Result<WeightedSigner, TonCellError> {
+/// Helper function to read the value from a key/value dict cell
+fn val_reader(parser: &mut CellParser) -> Result<WeightedSigner, TonCellError> {
     let signer_bytes = parser.load_bits(256)?;
     let signer: [u8; 32] = signer_bytes
         .try_into()
@@ -226,9 +308,27 @@ fn val_reader(parser: &mut CellParser) -> std::result::Result<WeightedSigner, To
     Ok(WeightedSigner::new(signer, weight, signature))
 }
 
-pub fn cell_parse_rotate_signers_log(
-    cell: &Arc<Cell>,
-) -> error_stack::Result<WeightedSigners, TonCellError> {
+/// Parses a TON cell representing a rotation log of weighted signers and reconstructs a `WeightedSigners` structure.
+///
+/// This function is the inverse of the serialization logic performed in `WeightedSigners::to_cell`.
+/// It reads a structured cell that encodes a dictionary of signers along with threshold and nonce metadata.
+/// The dictionary entries are expected to follow the layout defined by `WeightedSigner`.
+///
+/// # Cell Format Assumptions
+/// The input cell must contain:
+/// - A dictionary with 16-bit keys (parsed as `u16`) and values formatted as:
+///     - 256-bit public key (Ed25519, `[u8; 32]`)
+///     - 128-bit weight (`u128`)
+///     - 512-bit signature (Ed25519, `[u8; 64]`)
+/// - A 128-bit threshold (`u128`)
+/// - A 256-bit nonce (`u128`)
+///
+/// # Parameters
+/// - `cell`: A reference to an `Arc<Cell>` representing the serialized signer log.
+///
+/// # Returns
+/// A `WeightedSigners` instance reconstructed from the cell content, or a wrapped error if parsing fails.
+pub fn cell_parse_rotate_signers_log(cell: &Arc<Cell>) -> Result<WeightedSigners, TonCellError> {
     let mut parser = cell.parser();
 
     let dict = parser.load_dict(16, key_reader, val_reader)?;
@@ -244,9 +344,30 @@ pub fn cell_parse_rotate_signers_log(
     Ok(derived_weighted_signers)
 }
 
+/// Parses a TON cell representing a logged cross-chain contract call emitted by the Ton gateway
+/// and extracts the relevant metadata and identifiers.
+///
+/// This function expects the cell to encode references to other cells and inline data
+/// describing a cross-chain call. It extracts the destination chain and address (as UTF-8 strings),
+/// the payload (ignored here but validated structurally), the source address, and the payload hash.
+///
+/// # Cell Format Assumptions
+/// The input `cell` must contain the following in order:
+/// 1. A reference to a cell containing the UTF-8 encoded **destination chain** name.
+/// 2. A reference to a cell containing the UTF-8 encoded **destination address**.
+/// 3. A reference to a cell containing the raw **payload** (used only to validate structure).
+/// 4. An inline TON address representing the **source address**.
+/// 5. A 256-bit inline payload hash.
+///
+/// # Returns
+/// On success, returns a tuple containing:
+/// - `[u8; 32]`: The 256-bit hash of the payload.
+/// - `String`: The destination address string.
+/// - `String`: The destination chain name.
+/// - `TonAddress`: The source address.
 pub fn cell_parse_call_contract_log(
     cell: &Arc<Cell>,
-) -> error_stack::Result<
+) -> Result<
     (
         [u8; 32],
         std::string::String,
@@ -283,27 +404,48 @@ pub fn cell_parse_call_contract_log(
     ))
 }
 
-// Custom value writer for WeightedSigner
-fn val_writer_buffer(
-    builder: &mut CellBuilder,
-    val: WeightedSigner,
-) -> std::result::Result<(), TonCellError> {
-    builder.store_slice(&val.to_bytes())?;
-    Ok(())
-}
-
+/// Constructs a proof cell from a given verifier set and corresponding signatures, to be sent to the TON gateway.
+///
+/// This function is responsible for creating a serialized proof cell that contains:
+/// - A mapping of signer indices to `WeightedSigner` instances (public key, weight, and signature),
+/// - The multisig threshold value,
+/// - A nonce representing the creation timestamp of the verifier set.
+///
+/// The proof is structured as a TON cell and can be used for validation of
+/// signed messages in smart contracts or off-chain verification systems.
+///
+/// # Parameters
+/// - `verifier_set`: A reference to the `VerifierSet`, which contains the required
+///   multisig parameters (signers, threshold, and timestamp).
+/// - `signatures`: A vector of `SignerWithSig`, each of which includes a corresponding
+///   Ed25519 signature for a signer in the verifier set.
 fn construct_proof(
     verifier_set: &VerifierSet,
     signatures: Vec<SignerWithSig>,
 ) -> Result<Cell, TonCellError> {
-    let proof = WeightedSigners::new(verifier_set, signatures);
-    proof.to_cell()
+    let maybe_proof = WeightedSigners::new(verifier_set, signatures);
+    match maybe_proof {
+        Ok(proof) => proof.to_cell(),
+        Err(e) => Err(TonCellError::InternalError(e)),
+    }
 }
 
+/// A wrapper for getting a cell-chain containing a string
 fn get_arced_cell(inner: &str) -> Result<Arc<Cell>, TonCellError> {
     Ok(Arc::new(buffer_to_cell(inner.as_bytes().to_vec())?))
 }
 
+/// Serializes a `Message` struct into a TON cell.
+///
+/// The serialized format consists of:
+/// - A reference to a cell containing the message ID.
+/// - A reference to a cell containing the source chain identifier.
+/// - A reference to a cell containing the source address.
+/// - A nested cell with:
+///   - A reference to a cell containing the destination address.
+///   - A reference to a cell containing the destination chain identifier.
+/// - A 256-bit payload hash.
+///
 fn message_to_cell(msg: Message) -> Result<Cell, TonCellError> {
     let mut builder = CellBuilder::new();
     builder.store_reference(&get_arced_cell(&msg.cc_id.message_id)?)?;
@@ -332,23 +474,23 @@ fn message_to_cell(msg: Message) -> Result<Cell, TonCellError> {
     Ok(res)
 }
 
-// Custom value writer for WeightedSigner
-fn val_writer_cell(
-    builder: &mut CellBuilder,
-    val: Message,
-) -> std::result::Result<(), TonCellError> {
+#[derive(Debug)]
+struct TonMessages {
+    dict: HashMap<u16, Message>,
+}
+
+/// Helper function to write the value to a key/value dict cell
+fn val_writer_message(builder: &mut CellBuilder, val: Message) -> Result<(), TonCellError> {
     builder.store_reference(&Arc::new(
         message_to_cell(val).map_err(|_| TonCellError::InternalError("".to_owned()))?,
     ))?;
     Ok(())
 }
 
-#[derive(Debug)]
-struct TonMessages {
-    dict: HashMap<u16, Message>,
-}
-
+/// Implements construction and serialization for a collection of `Message` instances
+/// to be encoded into a TON cell structure.
 impl TonMessages {
+    /// Creates a new `TonMessages` instance from a slice of `Message` values.
     pub fn new(messages: &[Message]) -> Self {
         let msgs_hashmap: HashMap<u16, Message> = messages
             .iter() // Changed from into_iter() to iter()
@@ -358,21 +500,33 @@ impl TonMessages {
         TonMessages { dict: msgs_hashmap }
     }
 
+    /// Serializes the `TonMessages` into a TON cell using a dictionary.
     pub fn to_cell(&self) -> Result<Cell, TonCellError> {
         let mut builder = CellBuilder::new();
 
-        builder.store_dict(DICTIONARY_KEY_BITS, val_writer_cell, self.dict.clone())?;
+        builder.store_dict(DICTIONARY_KEY_BITS, val_writer_message, self.dict.clone())?;
         let dict_cell = builder.build()?;
 
         Ok(dict_cell)
     }
 }
 
+/// Wrapper to create a TON cell containing a slice of `Message` values.
 fn construct_messages(messages: &[Message]) -> Result<Cell, TonCellError> {
     let ton_msgs = TonMessages::new(messages);
     ton_msgs.to_cell()
 }
 
+/// Constructs a TON cell representing an "approve messages" operation, which includes
+/// the verifier set, the signatures and a set of cross-chain messages.
+///
+/// The resulting cell can be sent to the TON gateway as an internal message.
+///
+/// # Parameters
+/// - `messages`: A borrowed slice of `Message` objects representing cross-chain messages to be approved.
+/// - `verifier_set`: A reference to a `VerifierSet` defining the authorized signers and the threshold.
+/// - `signatures`: A vector of `SignerWithSig` containing the corresponding cryptographic signatures.
+///
 pub fn build_approve_messages_body(
     messages: &[Message],
     verifier_set: &VerifierSet,
@@ -389,6 +543,16 @@ pub fn build_approve_messages_body(
     Ok(builder.build()?)
 }
 
+/// Constructs a TON cell representing a "signer rotation" operation, which includes
+/// the new verifier set, the current verifier set and the signatures.
+///
+/// The resulting cell can be sent to the TON gateway as an internal message.
+///
+/// /// # Parameters
+/// - `candidate_set`: A reference to the `VerifierSet` that should replace the current one.
+/// - `current_set`: A reference to the existing `VerifierSet`, used to verify the provided signatures.
+/// - `signatures`: A vector of `SignerWithSig` containing the signatures by members of `current_set`.
+///
 pub fn build_signer_rotation_body(
     candidate_set: &VerifierSet,
     current_set: &VerifierSet,
@@ -406,6 +570,14 @@ pub fn build_signer_rotation_body(
     Ok(builder.build()?)
 }
 
+/// Calculates the hash of given `Message` slice in the same way as the TON gateway.
+///
+/// # Parameters
+/// - `msgs`: A slice of `Message` structures representing the cross-chain messages to hash.
+///
+/// # Panics
+/// - Panics if:
+///   - `TonAddress::from_str` fails to parse `destination_address` (this must be pre-validated).
 fn compute_data_hash(msgs: &[Message]) -> Hash {
     let mut concatenated: Vec<u8> = Vec::new();
 
@@ -436,6 +608,7 @@ fn compute_data_hash(msgs: &[Message]) -> Hash {
     Keccak256::digest(concatenated).into()
 }
 
+/// Calculates the hash of given `VerifierSet` in the same way as the TON gateway.
 #[allow(clippy::arithmetic_side_effects)]
 fn compute_verifier_set_hash(verifier_set: &VerifierSet) -> Hash {
     let mut data = Vec::new();
@@ -454,10 +627,10 @@ fn compute_verifier_set_hash(verifier_set: &VerifierSet) -> Hash {
     sorted_keys.sort();
 
     for (i, key) in sorted_keys.iter().enumerate() {
-        let signer = verifier_set.signers.get(*key).unwrap();
+        let signer = verifier_set.signers.get(*key).unwrap(); // assert: key in verifier_set.signers since we iterate over the keys
 
         let mut hasher = Keccak256::new();
-        hasher.update((u16::try_from(i).unwrap()).to_be_bytes());
+        hasher.update((u16::try_from(i).unwrap()).to_be_bytes()); // assert: less than 2^16 = 65536 signers
         hasher.update(&signer.pub_key);
         hasher.update(signer.weight.to_be_bytes());
         hasher.update(current_hash);
@@ -467,6 +640,8 @@ fn compute_verifier_set_hash(verifier_set: &VerifierSet) -> Hash {
     current_hash.into()
 }
 
+/// Calculates the hash of given `Message` slice and `VerifierSet` in the same way as the TON gateway,
+/// for use an "approve messages" operation.
 pub fn compute_approve_messages_hash(
     msgs: &[Message],
     verifier_set: &VerifierSet,
@@ -483,6 +658,8 @@ pub fn compute_approve_messages_hash(
     Keccak256::digest(result).into()
 }
 
+/// Calculates the hash of given two `VerifierSet` in the same way as the TON gateway, for use in
+/// a "rotate signers" operation.
 pub fn compute_signer_rotation_hash(
     candidate_set: &VerifierSet,
     current_set: &VerifierSet,
@@ -500,7 +677,8 @@ pub fn compute_signer_rotation_hash(
     Keccak256::digest(result).into()
 }
 
-pub fn cell_to_boc_hex(cell: Cell) -> std::result::Result<String, TonCellError> {
+// A wrapper to encode a TON `Cell` as a hex string.
+pub fn cell_to_boc_hex(cell: Cell) -> Result<String, TonCellError> {
     cell.to_boc_hex(true)
 }
 
@@ -536,4 +714,6 @@ mod tests {
 
     // TODO: WeightedSigners new and to_cell, and from VerifierSet
     // TODO: TonMessages new and to_cell
+    // const WEIGHTED_SIGNER_BYTES: usize = 112;
+    // TODO: WeightedSigner::to_bytes has a length equal to WEIGHTED_SIGNER_BYTES ()
 }

@@ -19,7 +19,7 @@ use voting_verifier::msg::ExecuteMsg;
 
 use crate::event_processor::EventHandler;
 use crate::handlers::errors::Error;
-use crate::ton_rpc::{verify_verifier_set, TonClient, TonLog};
+use crate::ton_rpc::{verify_verifier_set, TonClient};
 use crate::types::TMAddress;
 
 type Result<T> = error_stack::Result<T, Error>;
