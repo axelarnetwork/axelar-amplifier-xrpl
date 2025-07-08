@@ -144,8 +144,11 @@ where
         if !participants.contains(&self.verifier) {
             return Ok(vec![]);
         }
-
         let latest_block_height = *self.latest_block_height.borrow();
+        println!(
+            "Checking whether to skip poll: {} >= {} ?",
+            latest_block_height, expires_at
+        );
         if latest_block_height >= expires_at {
             info!(poll_id = poll_id.to_string(), "skipping expired poll");
             return Ok(vec![]);
@@ -200,5 +203,168 @@ where
             .vote_msg(poll_id, votes.await)
             .into_any()
             .expect("vote msg should serialize")])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::convert::TryInto;
+    use std::str::FromStr;
+
+    use axelar_wasm_std::msg_id::HexTxHash;
+    use axelar_wasm_std::nonempty_str;
+    use cosmwasm_std;
+    use error_stack::{Report, Result};
+    use ethers_core::types::{H160, H256};
+    use ethers_providers::ProviderError;
+    use events::Error::{DeserializationFailed, EventTypeMismatch};
+    use events::Event;
+    use router_api::ChainName;
+    use tokio::sync::watch;
+    use tokio::test as async_test;
+    use voting_verifier::events::{PollMetadata, PollStarted, TxEventConfirmation};
+
+    use super::PollStartedEvent;
+    use crate::event_processor::EventHandler;
+    use crate::evm::finalizer::Finalization;
+    use crate::evm::json_rpc::MockEthereumClient;
+    use crate::handlers::tests::{into_structured_event, participants};
+    use crate::ton_rpc::TonRpcClient;
+    use crate::types::TMAddress;
+    use crate::PREFIX;
+
+    fn poll_started_event(participants: Vec<TMAddress>, expires_at: u64) -> PollStarted {
+        let msg_ids = [
+            HexTxHash::new(H256::repeat_byte(1)),
+            HexTxHash::new(H256::repeat_byte(2)),
+            HexTxHash::new(H256::repeat_byte(3)),
+        ];
+        PollStarted::Messages {
+            metadata: PollMetadata {
+                poll_id: "100".parse().unwrap(),
+                source_chain: "ethereum".parse().unwrap(),
+                source_gateway_address: "kQAAGUqtjkIr7fQ_7nRtbZKdNp26slRopp1RNwbqaXi2OnXH"
+                    .parse()
+                    .unwrap(),
+                confirmation_height: 15,
+                expires_at,
+                participants: participants
+                    .into_iter()
+                    .map(|addr| cosmwasm_std::Addr::unchecked(addr.to_string()))
+                    .collect(),
+            },
+            #[allow(deprecated)] // TODO: The below events use the deprecated tx_id and event_index fields. Remove this attribute when those fields are removed
+            messages: vec![
+                TxEventConfirmation {
+                    tx_id: msg_ids[0].tx_hash_as_hex(),
+                    event_index: 0u32,
+                    message_id: msg_ids[0].to_string().parse().unwrap(),
+                    source_address: "0:b113a994b5024a16719f69139328eb759596c38a25f59028b146fecdc3621dfe".parse().unwrap(), // must not contain a _ symbol!
+                    destination_chain: "ethereum".parse().unwrap(),
+                    destination_address: format!("0x{:x}", H160::repeat_byte(2)).parse().unwrap(),
+                    payload_hash: H256::repeat_byte(4).to_fixed_bytes(),
+                },
+                TxEventConfirmation {
+                    tx_id: msg_ids[1].tx_hash_as_hex(),
+                    event_index: 0u32,
+                    message_id: msg_ids[1].to_string().parse().unwrap(),
+                    source_address: "0:7c3b4249fa1a9e0c0a830b5386eb33d805fa55f90cf03de77492971b20b5ec98".parse().unwrap(),
+                    destination_chain: "ethereum".parse().unwrap(),
+                    destination_address: format!("0x{:x}", H160::repeat_byte(4)).parse().unwrap(),
+                    payload_hash: H256::repeat_byte(5).to_fixed_bytes(),
+                },
+                TxEventConfirmation {
+                    tx_id: msg_ids[2].tx_hash_as_hex(),
+                    event_index: 0u32,
+                    message_id: msg_ids[2].to_string().parse().unwrap(),
+                    source_address: "0:b113a994b5024a16719f69139328eb759596c38a25f59028b146fecdc3621dfe".parse().unwrap(),
+                    destination_chain: "ethereum".parse().unwrap(),
+                    destination_address: format!("0x{:x}", H160::repeat_byte(6)).parse().unwrap(),
+                    payload_hash: H256::repeat_byte(6).to_fixed_bytes(),
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn should_not_deserialize_incorrect_event() {
+        // incorrect event type
+        let mut event: Event = into_structured_event(
+            poll_started_event(participants(5, None), 100),
+            &TMAddress::random(PREFIX),
+        );
+        match event {
+            Event::Abci {
+                ref mut event_type, ..
+            } => {
+                *event_type = "incorrect".into();
+            }
+            _ => panic!("incorrect event type"),
+        }
+        let event: Result<PollStartedEvent, events::Error> = (&event).try_into();
+
+        assert!(matches!(
+            event.unwrap_err().current_context(),
+            EventTypeMismatch(_)
+        ));
+
+        // invalid field
+        let mut event: Event = into_structured_event(
+            poll_started_event(participants(5, None), 100),
+            &TMAddress::random(PREFIX),
+        );
+        match event {
+            Event::Abci {
+                ref mut attributes, ..
+            } => {
+                attributes.insert("source_gateway_address".into(), "invalid".into());
+            }
+            _ => panic!("incorrect event type"),
+        }
+
+        let event: Result<PollStartedEvent, events::Error> = (&event).try_into();
+
+        assert!(matches!(
+            event.unwrap_err().current_context(),
+            DeserializationFailed(_, _)
+        ));
+    }
+
+    #[test]
+    fn ton_verify_msg_should_deserialize_correct_event() {
+        let event: Event = into_structured_event(
+            poll_started_event(participants(5, None), 100),
+            &TMAddress::random(PREFIX),
+        );
+        println!("{:?}", event);
+        let event: PollStartedEvent = event.try_into().unwrap();
+
+        goldie::assert_debug!(event);
+    }
+
+    #[async_test]
+    async fn should_skip_expired_poll() {
+        let rpc_client = TonRpcClient::new("inv-scheme://invalid-url.abc");
+
+        let voting_verifier_contract = TMAddress::random(PREFIX);
+        let verifier = TMAddress::random(PREFIX);
+        let expiration = 100u64;
+        let event: Event = into_structured_event(
+            poll_started_event(participants(5, Some(verifier.clone())), expiration),
+            &voting_verifier_contract,
+        );
+
+        let (tx, rx) = watch::channel(expiration - 1);
+
+        let handler = super::Handler::new(verifier, voting_verifier_contract, rpc_client, rx);
+
+        // poll is not expired yet, should get one vote
+        let vote = handler.handle(&event).await.unwrap();
+        assert_eq!(vote.len(), 1);
+
+        let _ = tx.send(expiration + 1);
+
+        // poll is expired, should not get a vote
+        assert_eq!(handler.handle(&event).await.unwrap(), vec![]);
     }
 }

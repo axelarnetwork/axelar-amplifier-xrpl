@@ -149,3 +149,92 @@ where
             .expect("vote msg should serialize")])
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::convert::TryInto;
+    use std::str::FromStr;
+
+    use axelar_wasm_std::msg_id::{HexTxHash, HexTxHashAndEventIndex};
+    use error_stack::Report;
+    use ethers_core::types::H256;
+    use ethers_providers::ProviderError;
+    use events::Event;
+    use multisig::key::KeyType;
+    use multisig::test::common::{build_verifier_set, ecdsa_test_data};
+    use router_api::ChainName;
+    use tokio::sync::watch;
+    use tokio::test as async_test;
+    use voting_verifier::events::{PollMetadata, PollStarted, VerifierSetConfirmation};
+
+    use crate::event_processor::EventHandler;
+    use crate::handlers::tests::{into_structured_event, participants};
+    use crate::handlers::ton_verify_verifier_set::PollStartedEvent;
+    use crate::ton_rpc::TonRpcClient;
+    use crate::types::TMAddress;
+    use crate::PREFIX;
+
+    #[test]
+    fn ton_verify_verifier_set_should_deserialize_correct_event() {
+        let event: Event = into_structured_event(
+            poll_started_event(participants(5, None), 100),
+            &TMAddress::random(PREFIX),
+        );
+        println!("{:?}", event);
+        let event: Result<PollStartedEvent, _> = event.try_into();
+        println!("{:?}", event);
+
+        assert!(event.is_ok());
+    }
+
+    #[async_test]
+    async fn should_skip_expired_poll() {
+        let rpc_client = TonRpcClient::new("invalid");
+
+        let voting_verifier = TMAddress::random(PREFIX);
+        let verifier = TMAddress::random(PREFIX);
+        let expiration = 100u64;
+        let event: Event = into_structured_event(
+            poll_started_event(participants(5, Some(verifier.clone())), expiration),
+            &voting_verifier,
+        );
+
+        let (tx, rx) = watch::channel(expiration - 1);
+
+        let handler = super::Handler::new(verifier, voting_verifier, rpc_client, rx);
+
+        // poll is not expired yet, should hit rpc error
+        assert!(handler.handle(&event).await.is_err());
+
+        let _ = tx.send(expiration + 1);
+
+        // poll is expired, should not hit rpc error now
+        assert_eq!(handler.handle(&event).await.unwrap(), vec![]);
+    }
+
+    fn poll_started_event(participants: Vec<TMAddress>, expires_at: u64) -> PollStarted {
+        let msg_id = HexTxHash::new(H256::repeat_byte(1));
+        PollStarted::VerifierSet {
+            #[allow(deprecated)] // TODO: The below event uses the deprecated tx_id and event_index fields. Remove this attribute when those fields are removed
+            verifier_set: VerifierSetConfirmation {
+                tx_id: msg_id.tx_hash_as_hex(),
+                event_index: 0u32,
+                message_id: msg_id.to_string().parse().unwrap(),
+                verifier_set: build_verifier_set(KeyType::Ecdsa, &ecdsa_test_data::signers()),
+            },
+            metadata: PollMetadata {
+                poll_id: "100".parse().unwrap(),
+                source_chain: "ethereum".parse().unwrap(),
+                source_gateway_address: "0x4f4495243837681061c4743b74eedf548d5686a5"
+                    .parse()
+                    .unwrap(),
+                confirmation_height: 15,
+                expires_at,
+                participants: participants
+                    .into_iter()
+                    .map(|addr| cosmwasm_std::Addr::unchecked(addr.to_string()))
+                    .collect(),
+            },
+        }
+    }
+}
