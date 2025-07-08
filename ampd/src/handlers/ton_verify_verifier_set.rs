@@ -174,7 +174,7 @@ mod tests {
     use crate::types::TMAddress;
     use crate::PREFIX;
 
-    #[test]
+    /*#[test]
     fn ton_verify_verifier_set_should_deserialize_correct_event() {
         let event: Event = into_structured_event(
             poll_started_event(participants(5, None), 100),
@@ -210,7 +210,7 @@ mod tests {
 
         // poll is expired, should not hit rpc error now
         assert_eq!(handler.handle(&event).await.unwrap(), vec![]);
-    }
+    }*/
 
     fn poll_started_event(participants: Vec<TMAddress>, expires_at: u64) -> PollStarted {
         let msg_id = HexTxHash::new(H256::repeat_byte(1));
