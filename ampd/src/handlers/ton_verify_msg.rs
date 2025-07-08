@@ -25,7 +25,7 @@ use crate::types::{Hash, TMAddress};
 
 type Result<T> = error_stack::Result<T, Error>;
 
-mod hex_tx_hash_string {
+pub mod hex_tx_hash_string {
     use std::str::FromStr;
 
     use axelar_wasm_std::msg_id::HexTxHash;
@@ -180,16 +180,18 @@ where
                 if log.is_err() {
                     print!("Getting log failed: {:?}", log.err());
                     votes.push(Vote::NotFound); // Vote no
-                    continue;
                 }
-                let log = log.unwrap();
+                else
+                {
+                    let log = log.unwrap();
 
-                let vote = match verify_call_contract(log, m) {
-                    true => Vote::SucceededOnChain,
-                    false => Vote::FailedOnChain,
-                };
+                    let vote = match verify_call_contract(log, m) {
+                        true => Vote::SucceededOnChain,
+                        false => Vote::FailedOnChain,
+                    };
 
-                votes.push(vote);
+                    votes.push(vote);
+                }
             }
             info!(
                 votes = votes.as_value(),
@@ -226,8 +228,6 @@ mod tests {
 
     use super::PollStartedEvent;
     use crate::event_processor::EventHandler;
-    use crate::evm::finalizer::Finalization;
-    use crate::evm::json_rpc::MockEthereumClient;
     use crate::handlers::tests::{into_structured_event, participants};
     use crate::ton_rpc::TonRpcClient;
     use crate::types::TMAddress;

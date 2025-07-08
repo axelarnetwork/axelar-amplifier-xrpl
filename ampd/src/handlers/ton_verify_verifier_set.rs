@@ -24,8 +24,11 @@ use crate::types::TMAddress;
 
 type Result<T> = error_stack::Result<T, Error>;
 
+use crate::handlers::ton_verify_msg::hex_tx_hash_string;
+
 #[derive(Deserialize, Debug)]
 pub struct VerifierSetConfirmation {
+    #[serde(with = "hex_tx_hash_string")]
     pub message_id: HexTxHash,
     pub verifier_set: VerifierSet,
 }
@@ -156,6 +159,7 @@ mod tests {
     use std::str::FromStr;
 
     use axelar_wasm_std::msg_id::{HexTxHash, HexTxHashAndEventIndex};
+    use axelar_wasm_std::{nonempty, nonempty_str};
     use error_stack::Report;
     use ethers_core::types::H256;
     use ethers_providers::ProviderError;
@@ -174,7 +178,7 @@ mod tests {
     use crate::types::TMAddress;
     use crate::PREFIX;
 
-    /*#[test]
+    #[test]
     fn ton_verify_verifier_set_should_deserialize_correct_event() {
         let event: Event = into_structured_event(
             poll_started_event(participants(5, None), 100),
@@ -203,21 +207,22 @@ mod tests {
 
         let handler = super::Handler::new(verifier, voting_verifier, rpc_client, rx);
 
-        // poll is not expired yet, should hit rpc error
-        assert!(handler.handle(&event).await.is_err());
+        // poll is not expired yet, should get one no vote
+        let result = handler.handle(&event).await.unwrap(); 
+        assert_eq!(result.len(), 1);
 
         let _ = tx.send(expiration + 1);
 
-        // poll is expired, should not hit rpc error now
+        // poll is expired, should not get a vote
         assert_eq!(handler.handle(&event).await.unwrap(), vec![]);
-    }*/
+    }
 
     fn poll_started_event(participants: Vec<TMAddress>, expires_at: u64) -> PollStarted {
         let msg_id = HexTxHash::new(H256::repeat_byte(1));
         PollStarted::VerifierSet {
             #[allow(deprecated)] // TODO: The below event uses the deprecated tx_id and event_index fields. Remove this attribute when those fields are removed
             verifier_set: VerifierSetConfirmation {
-                tx_id: msg_id.tx_hash_as_hex(),
+                tx_id: msg_id.tx_hash_as_hex_no_prefix(),
                 event_index: 0u32,
                 message_id: msg_id.to_string().parse().unwrap(),
                 verifier_set: build_verifier_set(KeyType::Ecdsa, &ecdsa_test_data::signers()),
@@ -225,7 +230,7 @@ mod tests {
             metadata: PollMetadata {
                 poll_id: "100".parse().unwrap(),
                 source_chain: "ethereum".parse().unwrap(),
-                source_gateway_address: "0x4f4495243837681061c4743b74eedf548d5686a5"
+                source_gateway_address: "kQAAGUqtjkIr7fQ_7nRtbZKdNp26slRopp1RNwbqaXi2OnXH"
                     .parse()
                     .unwrap(),
                 confirmation_height: 15,
