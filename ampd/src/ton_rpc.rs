@@ -32,8 +32,6 @@ fn parse_call_contract_log(
     let (payload_hash, destination_address, destination_chain, source_address) =
         cell_parse_call_contract_log(cell).map_err(|_| FetchingError::InvalidCall)?;
 
-    let payload_hash = H256::from(payload_hash);
-
     let destination_chain =
         ChainName::from_str(&destination_chain).map_err(|_| FetchingError::InvalidCall)?;
 
@@ -102,7 +100,8 @@ pub fn verify_call_contract(log: TonLog, expected_message: &Message) -> bool {
         info!("Failed to parse event body as a contract call data");
         return false;
     }
-    return true;
+
+    true
 }
 
 pub fn verify_verifier_set(log: TonLog, expected_verifier_set: &VerifierSetConfirmation) -> bool {
@@ -136,7 +135,8 @@ pub fn verify_verifier_set(log: TonLog, expected_verifier_set: &VerifierSetConfi
         info!("Failed to parse event body as a contract call data");
         return false;
     }
-    return true;
+
+    true
 }
 
 #[async_trait]
@@ -272,31 +272,23 @@ mod tests {
     use std::collections::BTreeMap;
     use std::sync::Arc;
 
-    use async_trait::async_trait;
     use axelar_wasm_std::msg_id::HexTxHash;
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
     use cosmwasm_std::{Addr, HexBinary, Uint128};
-    use error_stack::report;
     use multisig::key::PublicKey;
     use multisig::msg::Signer;
     use multisig::verifier_set::VerifierSet;
     use tonlib_core::cell::Cell;
     use tonlib_core::tlb_types::traits::TLBObject;
-    use tonlib_core::TonAddress;
 
     use crate::ton_rpc::{
-        parse_call_contract_log, parse_rotate_signers_log, verify_call_contract,
-        verify_verifier_set, FetchingError, Message, TonClient, TonLog, TonRpcClient,
-        VerifierSetConfirmation, WeightedSigners, OP_CALL_CONTRACT, OP_SIGNERS_ROTATED,
+        parse_call_contract_log, parse_rotate_signers_log, verify_call_contract, TonLog,
+        WeightedSigners, OP_CALL_CONTRACT, OP_SIGNERS_ROTATED,
     };
 
-    const TEST_GATEWAY_ADDRESS: &str = "EQCd5sQG0Swz5pyNMZfh1a_J7GUykPQDr0oFMUq4oEfes27G";
     const TEST_EXAMPLE_TX_LOG_CALL_CONTRACT: &str = "te6cckEBBAEA5QADg4AcPMZ9bgNiMWiFLuLZ3ODT3Qj2rbcRiS/f1NA9opZaWPXUykhs4AH2lBVEFjqex7VaPbPTvuLH5GEs5sIeXm+pcAECAwAcYXZhbGFuY2hlLWZ1amkAVDB4ZDcwNjdBZTNDMzU5ZTgzNzg5MGIyOEI3QkQwZDIwODRDZkRmNDliNQDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAE0hlbGxvIGZyb20gUmVsYXllciEAAAAAAAAAAAAAAAAAne0F4Q==";
     const TEST_EXAMPLE_TX_HASH_CALL_CONTRACT: &str = "jq3K6fvoS5e3DwwW4V2N6pxRyB+9BYYBpn0Ps6Qq7Z8=";
-    const TEST_EXAMPLE_TX_LOG_SIGNER_ROTATION: &str = "te6cckECCAEAAg8AAWGAAAAAAAAAAAAAAAAAAAABgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADAAQICzgIFAgEgAwQA4QDoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAOEQ83AI9ItX54QfRoGk0V9NdHRDrfSHHIRkvVvXeQGZdMAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAIBIAYHAOESB7edy2hV4XJ5ZoIYgG4w/nDBxKeP8bX80qk3+1YFOUAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIADhHm1Vi6P5lT5QHixEuipi6eQH4U65pW+1+DjkQutBJZkAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACDebNbp";
-    const TEST_EXAMPLE_TX_HASH_SIGNER_ROTATION: &str =
-        "90LLog5oCVb2pkwwUVAloQRX3pyJ0xI54BKqWHDajwo=";
 
     #[test]
     fn should_parse_signers_rotated_log() {
@@ -392,7 +384,7 @@ mod tests {
         print!("Expected message is {:?}", expected_message);
 
         let result = verify_call_contract(log, &expected_message);
-        assert_eq!(result, true);
+        assert!(result);
     }
 
     #[test]
@@ -414,7 +406,7 @@ mod tests {
         print!("Expected message is {:?}", expected_message);
 
         let result = verify_call_contract(log, &expected_message);
-        assert_eq!(result, false);
+        assert!(!result);
     }
 
     #[test]
@@ -437,7 +429,7 @@ mod tests {
         print!("Bad message is {:?}", bad_message);
 
         let result = verify_call_contract(log, &bad_message);
-        assert_eq!(result, false);
+        assert!(!result);
     }
 
     /*#[tokio::test]

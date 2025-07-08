@@ -180,9 +180,7 @@ where
                 if log.is_err() {
                     print!("Getting log failed: {:?}", log.err());
                     votes.push(Vote::NotFound); // Vote no
-                }
-                else
-                {
+                } else {
                     let log = log.unwrap();
 
                     let vote = match verify_call_contract(log, m) {
@@ -211,17 +209,13 @@ where
 #[cfg(test)]
 mod tests {
     use std::convert::TryInto;
-    use std::str::FromStr;
 
     use axelar_wasm_std::msg_id::HexTxHash;
-    use axelar_wasm_std::nonempty_str;
     use cosmwasm_std;
-    use error_stack::{Report, Result};
+    use error_stack::Result;
     use ethers_core::types::{H160, H256};
-    use ethers_providers::ProviderError;
     use events::Error::{DeserializationFailed, EventTypeMismatch};
     use events::Event;
-    use router_api::ChainName;
     use tokio::sync::watch;
     use tokio::test as async_test;
     use voting_verifier::events::{PollMetadata, PollStarted, TxEventConfirmation};

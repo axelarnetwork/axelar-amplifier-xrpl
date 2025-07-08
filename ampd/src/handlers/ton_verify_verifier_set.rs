@@ -156,17 +156,12 @@ where
 #[cfg(test)]
 mod tests {
     use std::convert::TryInto;
-    use std::str::FromStr;
 
-    use axelar_wasm_std::msg_id::{HexTxHash, HexTxHashAndEventIndex};
-    use axelar_wasm_std::{nonempty, nonempty_str};
-    use error_stack::Report;
+    use axelar_wasm_std::msg_id::{HexTxHash};
     use ethers_core::types::H256;
-    use ethers_providers::ProviderError;
     use events::Event;
     use multisig::key::KeyType;
     use multisig::test::common::{build_verifier_set, ecdsa_test_data};
-    use router_api::ChainName;
     use tokio::sync::watch;
     use tokio::test as async_test;
     use voting_verifier::events::{PollMetadata, PollStarted, VerifierSetConfirmation};
@@ -208,7 +203,7 @@ mod tests {
         let handler = super::Handler::new(verifier, voting_verifier, rpc_client, rx);
 
         // poll is not expired yet, should get one no vote
-        let result = handler.handle(&event).await.unwrap(); 
+        let result = handler.handle(&event).await.unwrap();
         assert_eq!(result.len(), 1);
 
         let _ = tx.send(expiration + 1);

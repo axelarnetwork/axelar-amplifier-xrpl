@@ -39,7 +39,6 @@ const SIGNER_PUBKEY_BYTES: usize = SIGNER_PUBKEY_BITS / BITS_PER_BYTE;
 /// # Parameters
 /// - `buffer`: A `Vec<u8>` representing the byte data to be encoded into the cell chain.
 ///
-
 fn buffer_to_cell(buffer: Vec<u8>) -> Result<Cell, TonCellError> {
     build_cell_chain(0, buffer)
 }
