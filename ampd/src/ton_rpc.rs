@@ -46,12 +46,15 @@ fn parse_call_contract_log(
 
 pub struct TonRpcClient {
     rpc_url: String,
+    client: Client,
 }
 
 impl TonRpcClient {
     pub fn new(rpc_url: &str) -> Self {
+        let client = Client::new();
         TonRpcClient {
             rpc_url: rpc_url.to_owned(),
+            client,
         }
     }
 }
@@ -231,9 +234,8 @@ impl TonClient for TonRpcClient {
 
         let method = "transactions";
 
-        let client = Client::new();
-
-        let res = client
+        let res = self
+            .client
             .get(format!("{}/{}", self.rpc_url, method))
             .query(&data)
             .send()
