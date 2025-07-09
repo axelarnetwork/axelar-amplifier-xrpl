@@ -284,13 +284,13 @@ impl CellTo for Arc<Cell> {
     }
 }
 
-/// Helper function to read the key from a key/value dict cell
-fn key_reader(key: &BigUint) -> Result<u16, TonCellError> {
+/// Helper function to read the u16 key from a key/value dict cell
+fn key_reader_weighted_signer(key: &BigUint) -> Result<u16, TonCellError> {
     Ok(key.to_u16().unwrap())
 }
 
-/// Helper function to read the value from a key/value dict cell
-fn val_reader(parser: &mut CellParser) -> Result<WeightedSigner, TonCellError> {
+/// Helper function to read the WeightedSigner value from a key/value dict cell
+fn val_reader_weighted_signer(parser: &mut CellParser) -> Result<WeightedSigner, TonCellError> {
     let signer_bytes = parser.load_bits(256)?;
     let signer: [u8; 32] = signer_bytes
         .try_into()
@@ -329,8 +329,7 @@ fn val_reader(parser: &mut CellParser) -> Result<WeightedSigner, TonCellError> {
 /// A `WeightedSigners` instance reconstructed from the cell content, or a wrapped error if parsing fails.
 pub fn cell_parse_rotate_signers_log(cell: &Arc<Cell>) -> Result<WeightedSigners, TonCellError> {
     let mut parser = cell.parser();
-
-    let dict = parser.load_dict(16, key_reader, val_reader)?;
+    let dict = parser.load_dict(16, key_reader_weighted_signer, val_reader_weighted_signer)?;
     let threshold = parser.load_uint(128)?;
     let nonce = parser.load_uint(256)?;
 
@@ -366,15 +365,7 @@ pub fn cell_parse_rotate_signers_log(cell: &Arc<Cell>) -> Result<WeightedSigners
 /// - `TonAddress`: The source address.
 pub fn cell_parse_call_contract_log(
     cell: &Arc<Cell>,
-) -> Result<
-    (
-        [u8; 32],
-        std::string::String,
-        std::string::String,
-        TonAddress,
-    ),
-    TonCellError,
-> {
+) -> Result<([u8; 32], String, String, TonAddress), TonCellError> {
     let mut parser = cell.parser();
     let destination_chain = parser.next_reference()?;
 
@@ -393,7 +384,7 @@ pub fn cell_parse_call_contract_log(
     let payload_hash: [u8; 32] = parser
         .load_bits(256)?
         .try_into()
-        .map_err(|_| TonCellError::InternalError("".to_owned()))?;
+        .map_err(|_| TonCellError::InternalError("Couldn't load payload hash".to_string()))?;
 
     Ok((
         payload_hash,
@@ -452,11 +443,14 @@ fn message_to_cell(msg: Message) -> Result<Cell, TonCellError> {
     builder.store_reference(&get_arced_cell(&msg.source_address)?)?;
 
     let ton_address_hash_buffer = TonAddress::from_str(&msg.destination_address)
-        .map_err(|_| TonCellError::InternalError("".to_owned()))?
+        .map_err(|_| {
+            TonCellError::InternalError("Failed to parse Address as TonAddress".to_string())
+        })?
         .hash_part
         .to_vec();
-    let ton_address_hash_buffer_cell = buffer_to_cell(ton_address_hash_buffer)
-        .map_err(|_| TonCellError::InternalError("".to_owned()))?;
+    let ton_address_hash_buffer_cell = buffer_to_cell(ton_address_hash_buffer).map_err(|_| {
+        TonCellError::InternalError("Failed to transform buffer into chain of cells".to_string())
+    })?;
 
     let mut last_cell_builder = CellBuilder::new();
     last_cell_builder.store_reference(&Arc::new(ton_address_hash_buffer_cell.clone()))?; // problem this should be the Ton address hash!!! .storeRef(bufferToCell(msg.executableAddress.hash))
@@ -480,9 +474,9 @@ struct TonMessages {
 
 /// Helper function to write the value to a key/value dict cell
 fn val_writer_message(builder: &mut CellBuilder, val: Message) -> Result<(), TonCellError> {
-    builder.store_reference(&Arc::new(
-        message_to_cell(val).map_err(|_| TonCellError::InternalError("".to_owned()))?,
-    ))?;
+    builder.store_reference(&Arc::new(message_to_cell(val).map_err(|_| {
+        TonCellError::InternalError("Failed to transform Message into Cell".to_string())
+    })?))?;
     Ok(())
 }
 
@@ -490,17 +484,20 @@ fn val_writer_message(builder: &mut CellBuilder, val: Message) -> Result<(), Ton
 /// to be encoded into a TON cell structure.
 impl TonMessages {
     /// Creates a new `TonMessages` instance from a slice of `Message` values.
-    pub fn new(messages: &[Message]) -> Self {
+    fn new(messages: &[Message]) -> Result<Self, TonCellError> {
+        if messages.len() > u16::MAX as usize {
+            return Err(TonCellError::InternalError("Too many messages".to_string()));
+        }
         let msgs_hashmap: HashMap<u16, Message> = messages
             .iter() // Changed from into_iter() to iter()
             .enumerate()
             .map(|(i, msg)| (u16::try_from(i).unwrap(), msg.clone())) // Added clone() since we're borrowing
             .collect();
-        TonMessages { dict: msgs_hashmap }
+        Ok(TonMessages { dict: msgs_hashmap })
     }
 
     /// Serializes the `TonMessages` into a TON cell using a dictionary.
-    pub fn to_cell(&self) -> Result<Cell, TonCellError> {
+    fn to_cell(&self) -> Result<Cell, TonCellError> {
         let mut builder = CellBuilder::new();
 
         builder.store_dict(DICTIONARY_KEY_BITS, val_writer_message, self.dict.clone())?;
@@ -512,7 +509,7 @@ impl TonMessages {
 
 /// Wrapper to create a TON cell containing a slice of `Message` values.
 fn construct_messages(messages: &[Message]) -> Result<Cell, TonCellError> {
-    let ton_msgs = TonMessages::new(messages);
+    let ton_msgs = TonMessages::new(messages)?;
     ton_msgs.to_cell()
 }
 
@@ -594,7 +591,9 @@ fn compute_data_hash(msgs: &[Message]) -> Hash {
         concatenated.extend(source_contract_address.as_bytes());
 
         let ton_address_hash_buffer = TonAddress::from_str(&contract_address)
-            .map_err(|_| TonCellError::InternalError("".to_owned()))
+            .map_err(|_| {
+                TonCellError::InternalError("Failed to parse Address as TonAddress".to_string())
+            })
             .unwrap()
             .hash_part
             .to_vec();

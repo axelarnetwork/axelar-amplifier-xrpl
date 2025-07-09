@@ -13,7 +13,7 @@ use ton_utils::{cell_parse_call_contract_log, cell_parse_rotate_signers_log, Wei
 use tonlib_core::cell::Cell;
 use tonlib_core::tlb_types::traits::TLBObject;
 use tonlib_core::TonAddress;
-use tracing::info;
+use tracing::warn;
 
 use crate::handlers::ton_verify_msg::{FetchingError, Message};
 use crate::handlers::ton_verify_verifier_set::VerifierSetConfirmation;
@@ -77,11 +77,6 @@ pub trait TonClient: Send + Sync + 'static {
 pub fn verify_call_contract(log: TonLog, expected_message: &Message) -> bool {
     // check that opcode is correct
     if log.opcode != OP_CALL_CONTRACT {
-        print!("Comparing opcode failed");
-        info!(
-            "Invalid opcode, got {} expected {}",
-            log.opcode, OP_CALL_CONTRACT
-        );
         return false;
     }
 
@@ -89,16 +84,10 @@ pub fn verify_call_contract(log: TonLog, expected_message: &Message) -> bool {
     if let Ok(result) = parse_call_contract_log(expected_message.message_id.clone(), &log.cell) {
         // compare
         if result != *expected_message {
-            print!("Caimed event is incorrect");
-            info!(
-                "Claimed event is incorrect: Got {:?} but expected {:?}",
-                result, expected_message
-            );
             return false;
         }
     } else {
-        print!("Failed to parse event body");
-        info!("Failed to parse event body as a contract call data");
+        warn!("Failed to parse event body as a contract call data");
         return false;
     }
 
@@ -108,53 +97,43 @@ pub fn verify_call_contract(log: TonLog, expected_message: &Message) -> bool {
 pub fn verify_verifier_set(log: TonLog, expected_verifier_set: &VerifierSetConfirmation) -> bool {
     // check that opcode is correct
     if log.opcode != OP_SIGNERS_ROTATED {
-        print!(
-            "Invalid opcode, got {} expected {}",
-            log.opcode, OP_SIGNERS_ROTATED
-        );
         return false;
     }
 
-    println!("{:?}", log.cell);
     // decode cell
     if let Ok(derived_weighted_signers) = parse_rotate_signers_log(&log.cell) {
         let expected_weighted_signers =
             WeightedSigners::try_from(expected_verifier_set.verifier_set.clone());
         if expected_weighted_signers.is_err() {
-            print!("Failed to convert verifier set to weighted signers");
+            warn!("Failed to convert verifier set to weighted signers");
             return false;
         }
         let expected_weighted_signers = expected_weighted_signers.unwrap();
 
         if derived_weighted_signers != expected_weighted_signers {
-            print!(
-                "Claimed event is incorrect: Got {:?} but expected {:?}",
-                derived_weighted_signers, expected_weighted_signers
-            );
             return false;
         }
     } else {
-        print!("Failed to parse event body as a contract call data");
+        warn!("Failed to parse event body as a contract call data");
         return false;
     }
 
     true
 }
 
-fn _get_log(
+fn extract_body(
     contract_address: &TonAddress,
-    text: String,
+    rpc_response: &str,
 ) -> error_stack::Result<TonLog, FetchingError> {
-    let result: Value = serde_json::from_str(&text).change_context(FetchingError::Client)?;
+    let result: Value = serde_json::from_str(rpc_response).change_context(FetchingError::Client)?;
 
     if let Some(transactions) = result.get("transactions").and_then(|v| v.as_array()) {
         // check the size of the response
         if transactions.is_empty() {
-            info!("Transaction not found");
             return Err(report!(FetchingError::NotFound));
         }
     } else {
-        info!("Failed to get transactions array");
+        warn!("Failed to get transactions array");
         return Err(report!(FetchingError::Client));
     }
 
@@ -167,15 +146,14 @@ fn _get_log(
     {
         if let Ok(address) = TonAddress::from_hex_str(address) {
             if address != *contract_address {
-                info!("Log was emitted on a different contract");
                 return Err(report!(FetchingError::InvalidCall));
             }
         } else {
-            info!("Failed to decode contract address");
+            warn!("Failed to decode contract address");
             return Err(report!(FetchingError::Client));
         }
     } else {
-        info!("Failed to get contract address");
+        warn!("Failed to get contract address");
         return Err(report!(FetchingError::Client));
     }
 
@@ -188,11 +166,10 @@ fn _get_log(
         .and_then(|v| v.as_bool())
     {
         if aborted {
-            info!("Transaction aborted");
             return Err(report!(FetchingError::InvalidCall));
         }
     } else {
-        info!("Failed to get aborted value");
+        warn!("Failed to get aborted value");
         return Err(report!(FetchingError::Client));
     }
 
@@ -208,13 +185,12 @@ fn _get_log(
         match u32::from_str_radix(_opcode.trim_start_matches("0x"), 16) {
             Ok(_opcode) => opcode = _opcode,
             Err(_) => {
-                info!("Failed to decode opcode");
-                return Err(report!(FetchingError::InvalidCall));
+                warn!("Failed to decode opcode");
+                return Err(report!(FetchingError::Client));
             }
         }
     } else {
-        info!("Failed to get log at expected index");
-        return Err(report!(FetchingError::InvalidCall));
+        return Err(report!(FetchingError::Client));
     }
 
     // access result["transactions"][0]["out_msgs"][0]["message_content"]["body"], load it as a cell
@@ -231,12 +207,12 @@ fn _get_log(
         if let Ok(cell) = Cell::from_boc_b64(log).and_then(|c| Arc::from_cell(&c)) {
             Ok(TonLog { opcode, cell })
         } else {
-            info!("Failed to load event body as a cell");
-            Err(report!(FetchingError::InvalidCall))
+            warn!("Failed to load event body as a cell");
+            Err(report!(FetchingError::Client))
         }
     } else {
-        info!("Failed to load event body");
-        Err(report!(FetchingError::InvalidCall))
+        warn!("Failed to load event body");
+        Err(report!(FetchingError::Client))
     }
 }
 
@@ -268,11 +244,11 @@ impl TonClient for TonRpcClient {
         let text = res.text().await.change_context(FetchingError::Client)?;
 
         if !status.is_success() {
-            info!("RPC query failed");
+            warn!("RPC query failed");
             return Err(report!(FetchingError::Client));
         }
 
-        _get_log(contract_address, text)
+        extract_body(contract_address, &text)
     }
 }
 
@@ -287,9 +263,8 @@ mod tests {
     use cosmwasm_std::{Addr, HexBinary, Uint128};
     use ethers_core::types::H256;
     use goldie::assert_debug;
-    use multisig::key::{KeyType, PublicKey};
+    use multisig::key::PublicKey;
     use multisig::msg::Signer;
-    use multisig::test::common::{build_verifier_set, ecdsa_test_data};
     use multisig::verifier_set::VerifierSet;
     use tonlib_core::cell::Cell;
     use tonlib_core::tlb_types::traits::TLBObject;
@@ -297,8 +272,8 @@ mod tests {
 
     use crate::handlers::ton_verify_verifier_set::VerifierSetConfirmation;
     use crate::ton_rpc::{
-        parse_call_contract_log, parse_rotate_signers_log, verify_call_contract, TonLog,
-        WeightedSigners, _get_log, verify_verifier_set, OP_CALL_CONTRACT, OP_SIGNERS_ROTATED,
+        extract_body, parse_call_contract_log, parse_rotate_signers_log, verify_call_contract,
+        verify_verifier_set, TonLog, WeightedSigners, OP_CALL_CONTRACT, OP_SIGNERS_ROTATED,
     };
 
     const TEST_EXAMPLE_TX_LOG_CALL_CONTRACT: &str = "te6cckEBBAEA5QADg4AcPMZ9bgNiMWiFLuLZ3ODT3Qj2rbcRiS/f1NA9opZaWPXUykhs4AH2lBVEFjqex7VaPbPTvuLH5GEs5sIeXm+pcAECAwAcYXZhbGFuY2hlLWZ1amkAVDB4ZDcwNjdBZTNDMzU5ZTgzNzg5MGIyOEI3QkQwZDIwODRDZkRmNDliNQDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAE0hlbGxvIGZyb20gUmVsYXllciEAAAAAAAAAAAAAAAAAne0F4Q==";
@@ -453,7 +428,7 @@ mod tests {
             TonAddress::from_base64_url("kQAAGUqtjkIr7fQ_7nRtbZKdNp26slRopp1RNwbqaXi2OnXH")
                 .unwrap();
 
-        let log = _get_log(&example_gateway, rpc_return_text.to_string())
+        let log = extract_body(&example_gateway, rpc_return_text)
             .expect("Example RPC return text should be parsable");
         assert_debug!(log);
     }
@@ -465,7 +440,7 @@ mod tests {
             TonAddress::from_base64_url("kQAAGUqtjkIr7fQ_7nRtbZKdNp26slRopp1RNwbqaXi2OnXH")
                 .unwrap();
 
-        let log = _get_log(&example_gateway, rpc_return_text_non_json.to_string());
+        let log = extract_body(&example_gateway, rpc_return_text_non_json);
         assert!(log.is_err());
     }
 
@@ -476,7 +451,7 @@ mod tests {
             TonAddress::from_base64_url("EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs")
                 .unwrap();
 
-        let log = _get_log(&example_gateway, rpc_return_text.to_string());
+        let log = extract_body(&example_gateway, rpc_return_text);
         assert!(log.is_err());
     }
 
@@ -488,7 +463,7 @@ mod tests {
             TonAddress::from_base64_url("kQAAGUqtjkIr7fQ_7nRtbZKdNp26slRopp1RNwbqaXi2OnXH")
                 .unwrap();
 
-        let log = _get_log(&example_gateway, rpc_return_text.to_string());
+        let log = extract_body(&example_gateway, rpc_return_text);
         assert!(log.is_err());
     }
 
@@ -500,7 +475,7 @@ mod tests {
             TonAddress::from_base64_url("kQAAGUqtjkIr7fQ_7nRtbZKdNp26slRopp1RNwbqaXi2OnXH")
                 .unwrap();
 
-        let log = _get_log(&example_gateway, rpc_return_text.to_string());
+        let log = extract_body(&example_gateway, rpc_return_text);
         assert!(log.is_err());
     }
 
@@ -511,7 +486,7 @@ mod tests {
             TonAddress::from_base64_url("kQAAGUqtjkIr7fQ_7nRtbZKdNp26slRopp1RNwbqaXi2OnXH")
                 .unwrap();
 
-        let log = _get_log(&example_gateway, rpc_return_text.to_string());
+        let log = extract_body(&example_gateway, rpc_return_text);
         assert!(log.is_err());
     }
 
@@ -523,7 +498,7 @@ mod tests {
             TonAddress::from_base64_url("kQAAGUqtjkIr7fQ_7nRtbZKdNp26slRopp1RNwbqaXi2OnXH")
                 .unwrap();
 
-        let log = _get_log(&example_gateway, rpc_return_text.to_string());
+        let log = extract_body(&example_gateway, rpc_return_text);
         assert!(log.is_err());
     }
 
@@ -535,7 +510,7 @@ mod tests {
             TonAddress::from_base64_url("kQAAGUqtjkIr7fQ_7nRtbZKdNp26slRopp1RNwbqaXi2OnXH")
                 .unwrap();
 
-        let log = _get_log(&example_gateway, rpc_return_text.to_string());
+        let log = extract_body(&example_gateway, rpc_return_text);
         assert!(log.is_err());
     }
 
@@ -546,7 +521,7 @@ mod tests {
             TonAddress::from_base64_url("kQAAGUqtjkIr7fQ_7nRtbZKdNp26slRopp1RNwbqaXi2OnXH")
                 .unwrap();
 
-        let log = _get_log(&example_gateway, rpc_return_text.to_string());
+        let log = extract_body(&example_gateway, rpc_return_text);
         assert!(log.is_err());
     }
 
@@ -557,7 +532,7 @@ mod tests {
             TonAddress::from_base64_url("kQAAGUqtjkIr7fQ_7nRtbZKdNp26slRopp1RNwbqaXi2OnXH")
                 .unwrap();
 
-        let log = _get_log(&example_gateway, rpc_return_text.to_string());
+        let log = extract_body(&example_gateway, rpc_return_text);
         assert!(log.is_ok());
     }
 
@@ -577,7 +552,7 @@ mod tests {
             TonAddress::from_base64_url("kQAAGUqtjkIr7fQ_7nRtbZKdNp26slRopp1RNwbqaXi2OnXH")
                 .unwrap();
 
-        let log = _get_log(&example_gateway, rpc_return_text.to_string()).unwrap();
+        let log = extract_body(&example_gateway, rpc_return_text).unwrap();
 
         assert!(verify_verifier_set(
             log,
@@ -602,7 +577,7 @@ mod tests {
             TonAddress::from_base64_url("kQAAGUqtjkIr7fQ_7nRtbZKdNp26slRopp1RNwbqaXi2OnXH")
                 .unwrap();
 
-        let log = _get_log(&example_gateway, rpc_return_text.to_string()).unwrap();
+        let log = extract_body(&example_gateway, rpc_return_text).unwrap();
 
         assert!(!verify_verifier_set(
             log,
@@ -619,7 +594,7 @@ mod tests {
             TonAddress::from_base64_url("kQAAGUqtjkIr7fQ_7nRtbZKdNp26slRopp1RNwbqaXi2OnXH")
                 .unwrap();
 
-        let log = _get_log(&example_gateway, rpc_return_text.to_string());
+        let log = extract_body(&example_gateway, rpc_return_text);
         assert!(log.is_err());
     }
 
