@@ -20,7 +20,8 @@ use voting_verifier::msg::ExecuteMsg;
 use crate::event_processor::EventHandler;
 use crate::handlers::errors::Error;
 use crate::handlers::errors::Error::DeserializeEvent;
-use crate::ton_rpc::{verify_call_contract, TonClient};
+use crate::ton::rpc::TonClient;
+use crate::ton::verifier::verify_call_contract;
 use crate::types::{Hash, TMAddress};
 
 type Result<T> = error_stack::Result<T, Error>;
@@ -223,7 +224,7 @@ mod tests {
     use super::PollStartedEvent;
     use crate::event_processor::EventHandler;
     use crate::handlers::tests::{into_structured_event, participants};
-    use crate::ton_rpc::TonRpcClient;
+    use crate::ton::rpc::TonRpcClient;
     use crate::types::TMAddress;
     use crate::PREFIX;
 

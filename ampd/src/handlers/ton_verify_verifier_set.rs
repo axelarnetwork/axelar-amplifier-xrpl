@@ -19,7 +19,8 @@ use voting_verifier::msg::ExecuteMsg;
 
 use crate::event_processor::EventHandler;
 use crate::handlers::errors::Error;
-use crate::ton_rpc::{verify_verifier_set, TonClient};
+use crate::ton::rpc::TonClient;
+use crate::ton::verifier::verify_verifier_set;
 use crate::types::TMAddress;
 
 type Result<T> = error_stack::Result<T, Error>;
@@ -169,7 +170,7 @@ mod tests {
     use crate::event_processor::EventHandler;
     use crate::handlers::tests::{into_structured_event, participants};
     use crate::handlers::ton_verify_verifier_set::PollStartedEvent;
-    use crate::ton_rpc::TonRpcClient;
+    use crate::ton::rpc::TonRpcClient;
     use crate::types::TMAddress;
     use crate::PREFIX;
 

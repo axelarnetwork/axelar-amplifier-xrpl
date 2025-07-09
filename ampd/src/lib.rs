@@ -23,7 +23,7 @@ use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::mpsc;
 use tokio::time::interval;
 use tokio_util::sync::CancellationToken;
-use ton_rpc::TonRpcClient;
+use ton::rpc::TonRpcClient;
 use tracing::info;
 use types::{CosmosPublicKey, TMAddress};
 
@@ -52,7 +52,7 @@ mod stellar;
 mod sui;
 mod tm_client;
 mod tofnd;
-mod ton_rpc;
+mod ton;
 mod types;
 mod url;
 mod xrpl;
