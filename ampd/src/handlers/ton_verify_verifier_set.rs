@@ -157,7 +157,7 @@ where
 mod tests {
     use std::convert::TryInto;
 
-    use axelar_wasm_std::msg_id::{HexTxHash};
+    use axelar_wasm_std::msg_id::HexTxHash;
     use ethers_core::types::H256;
     use events::Event;
     use multisig::key::KeyType;

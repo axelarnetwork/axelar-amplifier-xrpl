@@ -67,7 +67,7 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum FetchingError {
-    #[error("failed to create client")]
+    #[error("RPC error")]
     Client,
     #[error("invalid call")]
     InvalidCall,
