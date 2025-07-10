@@ -709,9 +709,4 @@ mod tests {
 
         assert_eq!(s, LOREM_STR);
     }
-
-    // TODO: WeightedSigners new and to_cell, and from VerifierSet
-    // TODO: TonMessages new and to_cell
-    // const WEIGHTED_SIGNER_BYTES: usize = 112;
-    // TODO: WeightedSigner::to_bytes has a length equal to WEIGHTED_SIGNER_BYTES ()
 }

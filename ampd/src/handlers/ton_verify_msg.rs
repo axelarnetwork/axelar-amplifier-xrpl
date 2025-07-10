@@ -146,10 +146,7 @@ where
             return Ok(vec![]);
         }
         let latest_block_height = *self.latest_block_height.borrow();
-        println!(
-            "Checking whether to skip poll: {} >= {} ?",
-            latest_block_height, expires_at
-        );
+
         if latest_block_height >= expires_at {
             info!(poll_id = poll_id.to_string(), "skipping expired poll");
             return Ok(vec![]);
@@ -179,7 +176,6 @@ where
                     .get_log(&source_gateway_address, &m.message_id)
                     .await;
                 if log.is_err() {
-                    print!("Getting log failed: {:?}", log.err());
                     votes.push(Vote::NotFound); // Vote no
                 } else {
                     let log = log.unwrap();

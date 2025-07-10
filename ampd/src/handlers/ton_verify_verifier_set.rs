@@ -180,9 +180,7 @@ mod tests {
             poll_started_event(participants(5, None), 100),
             &TMAddress::random(PREFIX),
         );
-        println!("{:?}", event);
         let event: Result<PollStartedEvent, _> = event.try_into();
-        println!("{:?}", event);
 
         assert!(event.is_ok());
     }
