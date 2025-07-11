@@ -1,10 +1,16 @@
 [package]
 name = "ampd"
 edition = { workspace = true }
-version = "1.8.0"
+version = "1.9.0"
 rust-version = { workspace = true }
 license = "MIT OR Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[features]
+default = ["commands", "config"]
+commands = []
+config = []
+url = []
 
 [dependencies]
 ampd-proto = { workspace = true }
@@ -30,8 +36,7 @@ ethers-core = { workspace = true }
 ethers-providers = { version = "2.0.13", default-features = false, features = [
   "rustls",
 ] }
-events = { workspace = true }
-events-derive = { workspace = true }
+events = { workspace = true, features = ["derive"] }
 evm-gateway = { workspace = true }
 futures = { workspace = true }
 gateway-event-stack = { workspace = true }
@@ -49,6 +54,7 @@ openssl = { version = "0.10.72", features = [
   "vendored",
 ] } # Needed to make arm compilation work by forcing vendoring
 pin-project-lite = "0.2.16"
+prometheus-client = "0.23.1"
 prost = "0.13.5"
 prost-types = "0.13.5"
 report = { workspace = true }
@@ -88,12 +94,9 @@ tonlib-core = "0.24.6"
 tower = "0.5.2"
 tower-http = { version = "0.6.4", features = ["trace"] }
 tracing = { workspace = true }
-tracing-core = { version = "0.1.30", features = ["valuable"] }
-tracing-subscriber = { version = "0.3.16", features = [
-  "json",
-  "valuable",
-  "env-filter",
-] }
+tracing-core = { workspace = true }
+tracing-error = { workspace = true }
+tracing-subscriber = { workspace = true }
 typed-builder = "0.18.2"
 url = "2.3.1"
 valuable = { version = "0.1.0", features = ["derive"] }
@@ -107,6 +110,7 @@ tonic-build = "0.13.0"
 
 [dev-dependencies]
 assert_ok = { workspace = true }
+axum-test = "15.7.4"
 ed25519-dalek = { workspace = true, features = ["rand_core"] }
 elliptic-curve = "0.13.5"
 faux = "0.1.10"

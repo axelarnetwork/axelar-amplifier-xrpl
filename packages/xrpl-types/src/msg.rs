@@ -56,21 +56,6 @@ impl std::fmt::Display for XRPLMessageType {
     }
 }
 
-impl TryFrom<String> for XRPLMessageType {
-    type Error = String;
-
-    fn try_from(s: String) -> Result<Self, Self::Error> {
-        match s.as_str() {
-            "proof" => Ok(XRPLMessageType::Proof),
-            "interchain_transfer" => Ok(XRPLMessageType::InterchainTransfer),
-            "call_contract" => Ok(XRPLMessageType::CallContract),
-            "add_gas" => Ok(XRPLMessageType::AddGas),
-            "add_reserves" => Ok(XRPLMessageType::AddReserves),
-            _ => Err(format!("Invalid XRPL message type: {}", s)),
-        }
-    }
-}
-
 impl XRPLMessage {
     pub fn tx_id(&self) -> HexTxHash {
         match self {

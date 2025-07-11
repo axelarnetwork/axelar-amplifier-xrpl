@@ -367,10 +367,6 @@ pub fn chain_contracts_info_from_coordinator(
     query_response.unwrap()
 }
 
-pub fn assert_chain_contracts_details_are_equal(chain_contracts_record: ChainContractsResponse) {
-    goldie::assert_json!(chain_contracts_record);
-}
-
 #[allow(clippy::arithmetic_side_effects)]
 pub fn advance_height(app: &mut AxelarApp, increment: u64) {
     let cur_block = app.block_info();
@@ -737,16 +733,6 @@ pub fn setup_chain(protocol: &mut Protocol, chain_name: ChainName) -> Chain {
         voting_verifier.contract_addr.clone(),
         chain_name.to_string(),
     );
-
-    let response = protocol.coordinator.execute(
-        &mut protocol.app,
-        protocol.governance_address.clone(),
-        &CoordinatorExecuteMsg::RegisterProverContract {
-            chain_name: chain_name.clone(),
-            new_prover_addr: multisig_prover.contract_addr.to_string(),
-        },
-    );
-    assert!(response.is_ok());
 
     let response = protocol.coordinator.execute(
         &mut protocol.app,

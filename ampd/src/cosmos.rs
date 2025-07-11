@@ -1,5 +1,7 @@
+use std::fmt;
 use std::time::Duration;
 
+use ::std::fmt::Debug;
 use async_trait::async_trait;
 use cosmrs::proto::cosmos::auth::v1beta1::query_client::QueryClient as AuthQueryClient;
 use cosmrs::proto::cosmos::auth::v1beta1::{
@@ -28,6 +30,7 @@ use tonic::transport::Channel;
 use tonic::{Code, Response, Status};
 
 use crate::broadcaster::tx::Tx;
+use crate::types::debug::REDACTED_VALUE;
 use crate::types::{CosmosPublicKey, TMAddress};
 
 type Result<T> = error_stack::Result<T, Error>;
@@ -184,6 +187,17 @@ impl CosmosClient for CosmosGrpcClient {
     }
 }
 
+impl Debug for CosmosGrpcClient {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CosmosGrpcClient")
+            .field("auth", &REDACTED_VALUE)
+            .field("bank", &REDACTED_VALUE)
+            .field("cosm_wasm", &REDACTED_VALUE)
+            .field("service", &REDACTED_VALUE)
+            .finish()
+    }
+}
+
 pub async fn estimate_gas<T>(
     client: &mut T,
     msgs: Vec<Any>,
@@ -246,7 +260,7 @@ where
 pub async fn contract_state<T>(
     client: &mut T,
     address: &TMAddress,
-    query: impl AsRef<[u8]>,
+    query: Vec<u8>,
 ) -> Result<Vec<u8>>
 where
     T: CosmosClient,
@@ -254,7 +268,7 @@ where
     client
         .smart_contract_state(QuerySmartContractStateRequest {
             address: address.to_string(),
-            query_data: query.as_ref().to_vec(),
+            query_data: query,
         })
         .await
         .map(|res| res.data)
