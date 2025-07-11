@@ -23,7 +23,7 @@ use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::mpsc;
 use tokio::time::interval;
 use tokio_util::sync::CancellationToken;
-use ton_rpc::TonRpcClient;
+use ton::rpc::TonRpcClient;
 use tracing::info;
 use types::{CosmosPublicKey, TMAddress};
 
@@ -52,7 +52,7 @@ mod stellar;
 mod sui;
 mod tm_client;
 mod tofnd;
-mod ton_rpc;
+mod ton;
 mod types;
 mod url;
 mod xrpl;
@@ -568,11 +568,21 @@ where
                     )
                 }
                 handlers::config::Config::TonVerifierSetVerifier {
-                    cosmwasm_contract: _,
-                    chain: _,
+                    cosmwasm_contract,
+                    rpc_url,
                     rpc_timeout: _,
                 } => {
-                    todo!()
+                    let ton_client = TonRpcClient::new(&rpc_url.to_string());
+                    self.create_handler_task(
+                        "ton-verifier-set-verifier",
+                        handlers::ton_verify_verifier_set::Handler::new(
+                            verifier.clone(),
+                            cosmwasm_contract,
+                            ton_client,
+                            self.block_height_monitor.latest_block_height(),
+                        ),
+                        event_processor_config.clone(),
+                    )
                 }
             };
             self.event_processor = self.event_processor.add_task(task);

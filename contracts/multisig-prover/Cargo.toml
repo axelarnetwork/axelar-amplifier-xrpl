@@ -61,6 +61,7 @@ stellar = { workspace = true }
 stellar-xdr = { workspace = true }
 sui-gateway = { workspace = true }
 thiserror = { workspace = true }
+ton-utils = { workspace = true }
 tonlib-core = "0.24.6"
 voting-verifier = { workspace = true, features = ["library"] }
 
