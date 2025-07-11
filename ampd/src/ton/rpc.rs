@@ -77,7 +77,7 @@ pub struct MessageContent {
     pub body: String,
 }
 
-pub fn extract_body(
+pub(crate) fn extract_body(
     contract_address: &TonAddress,
     rpc_response: &str,
 ) -> error_stack::Result<TonLog, FetchingError> {

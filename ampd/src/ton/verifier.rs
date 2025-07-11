@@ -41,7 +41,7 @@ fn parse_call_contract_log(
     })
 }
 
-pub fn verify_call_contract(log: TonLog, expected_message: &Message) -> bool {
+pub(crate) fn verify_call_contract(log: TonLog, expected_message: &Message) -> bool {
     // check that opcode is correct
     if log.opcode != OP_CALL_CONTRACT {
         return false;
@@ -61,7 +61,7 @@ pub fn verify_call_contract(log: TonLog, expected_message: &Message) -> bool {
     true
 }
 
-pub fn verify_verifier_set(log: TonLog, expected_verifier_set: &VerifierSetConfirmation) -> bool {
+pub(crate) fn verify_verifier_set(log: TonLog, expected_verifier_set: &VerifierSetConfirmation) -> bool {
     // check that opcode is correct
     if log.opcode != OP_SIGNERS_ROTATED {
         return false;
