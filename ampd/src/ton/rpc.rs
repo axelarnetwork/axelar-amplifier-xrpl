@@ -5,7 +5,8 @@ use async_trait::async_trait;
 use axelar_wasm_std::msg_id::HexTxHash;
 use error_stack::{report, ResultExt};
 use reqwest::Client;
-use serde_json::Value;
+use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
 use tonlib_core::cell::Cell;
 use tonlib_core::tlb_types::traits::TLBObject;
 use tonlib_core::TonAddress;
@@ -43,98 +44,78 @@ pub trait TonClient: Send + Sync + 'static {
     ) -> error_stack::Result<TonLog, FetchingError>;
 }
 
+#[serde_as]
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TransactionsResponse {
+    pub transactions: Vec<Transaction>,
+}
+
+#[serde_as]
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Transaction {
+    pub account: String,
+    pub hash: String,
+    pub description: TransactionDescription,
+    pub in_msg: TransactionMessage,
+    pub out_msgs: Vec<TransactionMessage>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TransactionDescription {
+    pub aborted: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TransactionMessage {
+    pub hash: String,
+    pub opcode: String,
+    pub message_content: MessageContent,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct MessageContent {
+    pub body: String,
+}
+
 pub fn extract_body(
     contract_address: &TonAddress,
     rpc_response: &str,
 ) -> error_stack::Result<TonLog, FetchingError> {
-    let result: Value = serde_json::from_str(rpc_response).change_context(FetchingError::Client)?;
+    let result: TransactionsResponse =
+        serde_json::from_str(rpc_response).change_context(FetchingError::Client)?;
 
-    if let Some(transactions) = result.get("transactions").and_then(|v| v.as_array()) {
-        // check the size of the response
-        if transactions.is_empty() {
-            return Err(report!(FetchingError::NotFound));
-        }
-    } else {
-        warn!("Failed to get transactions array");
-        return Err(report!(FetchingError::Client));
+    let transactions = result.transactions;
+
+    if transactions.len() == 0 {
+        return Err(report!(FetchingError::NotFound));
     }
 
-    // access result["transactions"][0]["account"] and check if it matches the provided address
-    if let Some(address) = result
-        .get("transactions")
-        .and_then(|v| v.get(0))
-        .and_then(|v| v.get("account"))
-        .and_then(|v| v.as_str())
-    {
-        if let Ok(address) = TonAddress::from_hex_str(address) {
-            if address != *contract_address {
-                return Err(report!(FetchingError::InvalidCall));
-            }
-        } else {
-            warn!("Failed to decode contract address");
-            return Err(report!(FetchingError::Client));
-        }
-    } else {
-        warn!("Failed to get contract address");
-        return Err(report!(FetchingError::Client));
+    let transaction = &transactions[0];
+
+    let address =
+        TonAddress::from_hex_str(&transaction.account).change_context(FetchingError::Client)?;
+
+    if address != *contract_address {
+        return Err(report!(FetchingError::InvalidCall));
     }
 
-    // access result["transactions"][0]["description"]["aborted"] and check if it is false
-    if let Some(aborted) = result
-        .get("transactions")
-        .and_then(|v| v.get(0))
-        .and_then(|v| v.get("description"))
-        .and_then(|v| v.get("aborted"))
-        .and_then(|v| v.as_bool())
-    {
-        if aborted {
-            return Err(report!(FetchingError::InvalidCall));
-        }
-    } else {
-        warn!("Failed to get aborted value");
-        return Err(report!(FetchingError::Client));
+    if transaction.description.aborted {
+        return Err(report!(FetchingError::InvalidCall));
     }
 
-    let opcode: u32;
-    // get result["transactions"][0]["in_msg"]["opcode"]
-    if let Some(_opcode) = result
-        .get("transactions")
-        .and_then(|v| v.get(0))
-        .and_then(|v| v.get("in_msg"))
-        .and_then(|v| v.get("opcode"))
-        .and_then(|v| v.as_str())
-    {
-        match u32::from_str_radix(_opcode.trim_start_matches("0x"), 16) {
-            Ok(_opcode) => opcode = _opcode,
-            Err(_) => {
-                warn!("Failed to decode opcode");
-                return Err(report!(FetchingError::Client));
-            }
-        }
-    } else {
-        return Err(report!(FetchingError::Client));
+    let opcode = u32::from_str_radix(transaction.in_msg.opcode.trim_start_matches("0x"), 16)
+        .change_context(FetchingError::Client)?;
+
+    if transaction.out_msgs.len() == 0 {
+        return Err(report!(FetchingError::InvalidCall));
     }
 
-    // access result["transactions"][0]["out_msgs"][0]["message_content"]["body"], load it as a cell
-    if let Some(log) = result
-        .get("transactions")
-        .and_then(|v| v.get(0))
-        .and_then(|v| v.get("out_msgs"))
-        .and_then(|v| v.get(0))
-        .and_then(|v| v.get("message_content"))
-        .and_then(|v| v.get("body"))
-        .and_then(|v| v.as_str())
-    {
-        // attempt to parse this log as a cell
-        if let Ok(cell) = Cell::from_boc_b64(log).and_then(|c| Arc::from_cell(&c)) {
-            Ok(TonLog { opcode, cell })
-        } else {
-            warn!("Failed to load event body as a cell");
-            Err(report!(FetchingError::Client))
-        }
-    } else {
-        warn!("Failed to load event body");
-        Err(report!(FetchingError::Client))
+    let log = &transaction.out_msgs[0];
+    let log_body = &log.message_content.body;
+
+    match Cell::from_boc_b64(log_body).and_then(|c| Arc::from_cell(&c)) {
+        Ok(cell) => Ok(TonLog { opcode, cell }),
+        Err(_) => Err(report!(FetchingError::Client)),
     }
 }
 
