@@ -86,7 +86,7 @@ pub(crate) fn extract_body(
 
     let transactions = result.transactions;
 
-    if transactions.len() == 0 {
+    if transactions.is_empty() {
         return Err(report!(FetchingError::NotFound));
     }
 
@@ -106,7 +106,7 @@ pub(crate) fn extract_body(
     let opcode = u32::from_str_radix(transaction.in_msg.opcode.trim_start_matches("0x"), 16)
         .change_context(FetchingError::Client)?;
 
-    if transaction.out_msgs.len() == 0 {
+    if transaction.out_msgs.is_empty() {
         return Err(report!(FetchingError::InvalidCall));
     }
 
