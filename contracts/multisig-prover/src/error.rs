@@ -102,4 +102,6 @@ pub enum ContractError {
     // an error when loading data that should always load successfully.
     #[error("storage error")]
     StorageError,
+    #[error("placeholder for all ton errors")]
+    TonError,
 }

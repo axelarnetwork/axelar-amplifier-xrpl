@@ -7,6 +7,7 @@ use error_stack::{bail, Result, ResultExt};
 use starknet_checked_felt::CheckedFelt;
 use stellar_xdr::curr::ScAddress;
 use sui_types::SuiAddress;
+use tonlib_core::TonAddress;
 
 #[derive(thiserror::Error)]
 #[cw_serde]
@@ -21,6 +22,7 @@ pub enum AddressFormat {
     Sui,
     Stellar,
     Starknet,
+    Ton,
 }
 
 pub fn validate_address(address: &str, format: &AddressFormat) -> Result<(), Error> {
@@ -43,6 +45,10 @@ pub fn validate_address(address: &str, format: &AddressFormat) -> Result<(), Err
         AddressFormat::Starknet => {
             CheckedFelt::from_str(address)
                 .change_context(Error::InvalidAddress(address.to_string()))?;
+        }
+        AddressFormat::Ton => {
+            TonAddress::from_str(address)
+                .map_err(|_| Error::InvalidAddress(address.to_string()))?;
         }
     }
 
@@ -284,6 +290,55 @@ mod tests {
                 upper_case_invalid.as_str(),
                 &address::AddressFormat::Starknet
             ),
+            address::Error,
+            address::Error::InvalidAddress(..)
+        );
+    }
+
+    #[test]
+    fn validate_ton_address() {
+        // some valid address
+        let addr = "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs";
+        assert_ok!(address::validate_address(
+            addr,
+            &address::AddressFormat::Ton
+        ));
+
+        // illegal character
+        let invalid_char = "EQCxE6mUtQJKFnGfaROT!Ot1lZbDiiX1kCixRv7Nw2Id_sDs";
+        assert_err_contains!(
+            address::validate_address(invalid_char, &address::AddressFormat::Ton),
+            address::Error,
+            address::Error::InvalidAddress(..)
+        );
+
+        // invalid length, too short
+        let too_short = "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sD";
+        assert_err_contains!(
+            address::validate_address(too_short, &address::AddressFormat::Ton),
+            address::Error,
+            address::Error::InvalidAddress(..)
+        );
+
+        // invalid length, too long
+        let zero_removed = "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDss";
+        assert_err_contains!(
+            address::validate_address(zero_removed, &address::AddressFormat::Ton),
+            address::Error,
+            address::Error::InvalidAddress(..)
+        );
+
+        // represent as hex
+        let addr_hex = "0:b113a994b5024a16719f69139328eb759596c38a25f59028b146fecdc3621dfe";
+        assert_ok!(address::validate_address(
+            addr_hex,
+            &address::AddressFormat::Ton
+        ));
+
+        // invalid length, too short
+        let zero_removed = "0:b113a994b5024a16719f69139328eb759596c38a25f59028b146fecdc3621df";
+        assert_err_contains!(
+            address::validate_address(zero_removed, &address::AddressFormat::Ton),
             address::Error,
             address::Error::InvalidAddress(..)
         );

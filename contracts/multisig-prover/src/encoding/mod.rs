@@ -1,6 +1,7 @@
 mod abi;
 mod bcs;
 mod stellar_xdr;
+mod ton;
 
 use axelar_wasm_std::hash::Hash;
 use cosmwasm_std::HexBinary;
@@ -42,6 +43,7 @@ impl EncoderExt for Encoder {
             Encoder::StellarXdr => {
                 stellar_xdr::payload_digest(domain_separator, verifier_set, payload)
             }
+            Encoder::Ton => ton::payload_digest(domain_separator, verifier_set, payload),
         }
     }
 
@@ -56,6 +58,7 @@ impl EncoderExt for Encoder {
             Encoder::Abi => abi::encode_execute_data(domain_separator, verifier_set, sigs, payload),
             Encoder::Bcs => bcs::encode_execute_data(domain_separator, verifier_set, sigs, payload),
             Encoder::StellarXdr => stellar_xdr::encode_execute_data(verifier_set, sigs, payload),
+            Encoder::Ton => ton::encode_execute_data(verifier_set, sigs, payload),
         }
     }
 }
