@@ -4,6 +4,7 @@ use alloy_primitives::Address;
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Addr, Api};
 use error_stack::{bail, Result, ResultExt};
+use regex::Regex;
 use starknet_checked_felt::CheckedFelt;
 use stellar_xdr::curr::ScAddress;
 use sui_types::SuiAddress;
@@ -47,7 +48,15 @@ pub fn validate_address(address: &str, format: &AddressFormat) -> Result<(), Err
                 .change_context(Error::InvalidAddress(address.to_string()))?;
         }
         AddressFormat::Ton => {
-            TonAddress::from_str(address)
+            // requires that the address consists of two colon-separated parts:
+            // The first part being a signed number in the canonical representation (no leading zeroes)
+            // The second part is a hex string of 64 characters
+            // This is important, because the TonAddress::from_hex_str will consider 00:aaa... and 0:aaa... the same address
+            let re = Regex::new(r"^(0|[1-9][0-9]*|-[1-9][0-9]*):[a-f\d]{64}$").unwrap();
+            if !re.is_match(address) {
+                return bail!(Error::InvalidAddress(address.to_string()));
+            }
+            TonAddress::from_hex_str(address)
                 .map_err(|_| Error::InvalidAddress(address.to_string()))?;
         }
     }
@@ -297,12 +306,13 @@ mod tests {
 
     #[test]
     fn validate_ton_address() {
-        // some valid address
+        // some valid address but not in the enforced format
         let addr = "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs";
-        assert_ok!(address::validate_address(
-            addr,
-            &address::AddressFormat::Ton
-        ));
+        assert_err_contains!(
+            address::validate_address(addr, &address::AddressFormat::Ton),
+            address::Error,
+            address::Error::InvalidAddress(..)
+        );
 
         // illegal character
         let invalid_char = "EQCxE6mUtQJKFnGfaROT!Ot1lZbDiiX1kCixRv7Nw2Id_sDs";
@@ -328,6 +338,14 @@ mod tests {
             address::Error::InvalidAddress(..)
         );
 
+        // invalid length, too short
+        let zero_removed = "0:b113a994b5024a16719f69139328eb759596c38a25f59028b146fecdc3621df";
+        assert_err_contains!(
+            address::validate_address(zero_removed, &address::AddressFormat::Ton),
+            address::Error,
+            address::Error::InvalidAddress(..)
+        );
+
         // represent as hex
         let addr_hex = "0:b113a994b5024a16719f69139328eb759596c38a25f59028b146fecdc3621dfe";
         assert_ok!(address::validate_address(
@@ -335,10 +353,40 @@ mod tests {
             &address::AddressFormat::Ton
         ));
 
-        // invalid length, too short
-        let zero_removed = "0:b113a994b5024a16719f69139328eb759596c38a25f59028b146fecdc3621df";
+        // represent as hex
+        let addr_hex = "1:b113a994b5024a16719f69139328eb759596c38a25f59028b146fecdc3621dfe";
+        assert_ok!(address::validate_address(
+            addr_hex,
+            &address::AddressFormat::Ton
+        ));
+
+        // represent as hex
+        let addr_hex = "-1:b113a994b5024a16719f69139328eb759596c38a25f59028b146fecdc3621dfe";
+        assert_ok!(address::validate_address(
+            addr_hex,
+            &address::AddressFormat::Ton
+        ));
+
+        // represent as hex but incorrect
+        let addr_hex = "00:b113a994b5024a16719f69139328eb759596c38a25f59028b146fecdc3621dfe";
         assert_err_contains!(
-            address::validate_address(zero_removed, &address::AddressFormat::Ton),
+            address::validate_address(addr_hex, &address::AddressFormat::Ton),
+            address::Error,
+            address::Error::InvalidAddress(..)
+        );
+
+        // represent as hex but incorrect
+        let addr_hex = "01:b113a994b5024a16719f69139328eb759596c38a25f59028b146fecdc3621dfe";
+        assert_err_contains!(
+            address::validate_address(addr_hex, &address::AddressFormat::Ton),
+            address::Error,
+            address::Error::InvalidAddress(..)
+        );
+
+        // represent as hex but incorrect
+        let addr_hex = "-0:b113a994b5024a16719f69139328eb759596c38a25f59028b146fecdc3621dfe";
+        assert_err_contains!(
+            address::validate_address(addr_hex, &address::AddressFormat::Ton),
             address::Error,
             address::Error::InvalidAddress(..)
         );
