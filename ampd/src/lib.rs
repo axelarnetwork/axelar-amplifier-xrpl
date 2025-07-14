@@ -612,7 +612,7 @@ where
                 rpc_url,
                 rpc_timeout: _,
             } => {
-                let ton_client = TonRpcClient::new(&rpc_url.to_string());
+                let ton_client = TonRpcClient::new(&rpc_url.as_str().trim_end_matches('/'));
                 Ok(self.create_handler_task(
                     "ton-msg-verifier",
                     handlers::ton_verify_msg::Handler::new(
@@ -630,7 +630,7 @@ where
                 rpc_url,
                 rpc_timeout: _,
             } => {
-                let ton_client = TonRpcClient::new(&rpc_url.to_string());
+                let ton_client = TonRpcClient::new(&rpc_url.as_str().trim_end_matches('/'));
                 Ok(self.create_handler_task(
                     "ton-verifier-set-verifier",
                     handlers::ton_verify_verifier_set::Handler::new(
