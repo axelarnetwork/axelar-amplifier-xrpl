@@ -54,7 +54,7 @@ pub fn validate_address(address: &str, format: &AddressFormat) -> Result<(), Err
             // This is important, because the TonAddress::from_hex_str will consider 00:aaa... and 0:aaa... the same address
             let re = Regex::new(r"^(0|[1-9][0-9]*|-[1-9][0-9]*):[a-f\d]{64}$").unwrap();
             if !re.is_match(address) {
-                return bail!(Error::InvalidAddress(address.to_string()));
+                bail!(Error::InvalidAddress(address.to_string()))
             }
             TonAddress::from_hex_str(address)
                 .map_err(|_| Error::InvalidAddress(address.to_string()))?;
