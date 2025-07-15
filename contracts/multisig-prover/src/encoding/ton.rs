@@ -101,6 +101,41 @@ mod tests {
     }
 
     #[test]
+    fn should_encode_approve_messages_with_invalid_signatures() {
+        let verifier_set = curr_ton_verifier_set();
+        let payload = Payload::Messages(ton_messages());
+
+        let sigs: Vec<_> = vec![
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        ].into_iter().map(|sig| HexBinary::from_hex(sig).unwrap()).collect();
+
+        let signers_with_sigs = signers_with_sigs(verifier_set.signers.values(), sigs);
+
+        let encoded_execute_data = encode_execute_data(&verifier_set, signers_with_sigs, &payload);
+
+        assert!(encoded_execute_data.is_ok());
+    }
+
+    #[test]
+    fn should_reject_encode_approve_messages_incorrect_key_type() {
+        let verifier_set = incorrect_key_type_curr_ton_verifier_set();
+        let payload = Payload::Messages(ton_messages());
+
+        let sigs: Vec<_> = vec![
+            "6dce1b2f0a4e14c81d7ed24326d16cb38a596dd34318f0c28f84041cef8537331750c6273898dd8ea3d614ab5101cab27eb36f00940c0dbdcf2111bc8bd79f0f",
+            "cbda5213e3a30172fb88b4038c39d223be29bc4656a36c4078ec7eaaaf8e4e496d72a0ba3af1e1d53f1d988d7bf68ab6968654bf031b915fa660245c09a81c07",
+            "9b7265c9660f8dd37e99e6c8e4e5fc020a1f0ddb9d55c3f352e826990af144485903cb41b47d6091f7c753ff5de667414be03bfe6a1d3f06513d949005a3500c",
+        ].into_iter().map(|sig| HexBinary::from_hex(sig).unwrap()).collect();
+
+        let signers_with_sigs = signers_with_sigs(verifier_set.signers.values(), sigs);
+
+        let encoded_execute_data = encode_execute_data(&verifier_set, signers_with_sigs, &payload);
+        assert!(encoded_execute_data.is_err());
+    }
+
+    #[test]
     fn should_encode_rotate_signers() {
         let verifier_set = curr_ton_verifier_set();
 
@@ -205,6 +240,31 @@ mod tests {
                         weight: nonempty::Uint128::one(),
                     },
                     multisig::key::PublicKey::Ed25519(HexBinary::from_hex(pub_keys[i]).unwrap()),
+                )
+            })
+            .collect();
+        VerifierSet::new(participants, Uint128::from(3u128), 1)
+    }
+
+    fn incorrect_key_type_curr_ton_verifier_set() -> VerifierSet {
+        let pub_keys = vec![
+            "03A107BFF3CE10BE1D70DD18E74BC09967E4D6309BA50D5F1DDC8664125531B8",
+            "43CDC023D22D5F9E107D1A0693457D35D1D10EB7D21C721192F56F5DE40665D3",
+            "79B5562E8FE654F94078B112E8A98BA7901F853AE695BED7E0E3910BAD049664",
+        ];
+
+        ton_incorrect_key_type_verifier_set_from_pub_keys(&pub_keys)
+    }
+
+    fn ton_incorrect_key_type_verifier_set_from_pub_keys(pub_keys: &[&str]) -> VerifierSet {
+        let participants: Vec<(_, _)> = (0..pub_keys.len())
+            .map(|i| {
+                (
+                    Participant {
+                        address: Addr::unchecked(format!("verifier{i}")),
+                        weight: nonempty::Uint128::one(),
+                    },
+                    multisig::key::PublicKey::Ecdsa(HexBinary::from_hex(pub_keys[i]).unwrap()),
                 )
             })
             .collect();
