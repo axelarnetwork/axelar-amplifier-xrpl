@@ -678,7 +678,7 @@ pub fn cell_to_boc_hex(cell: Cell) -> Result<String, TonCellError> {
 
 #[cfg(test)]
 mod tests {
-    use router_api::{Address, ChainName, ChainNameRaw, CrossChainId, Message};
+    use router_api::{ChainName, ChainNameRaw, CrossChainId, Message};
     use tonlib_core::cell::Cell;
     use tonlib_core::tlb_types::traits::TLBObject;
 
@@ -714,14 +714,13 @@ mod tests {
                 source_chain: ChainNameRaw::try_from("Testchain".to_string()).unwrap(),
                 message_id: "Some message".try_into().unwrap(),
             },
-            source_address: Address::from("from-some-address".to_string().try_into().unwrap()),
+            source_address: "from-some-address".to_string().try_into().unwrap(),
             destination_chain: ChainName::try_from("TestChain2".to_string()).unwrap(),
-            destination_address: Address::from(
+            destination_address:
                 "0:4d3e1eb3fef978b01cfc0189d990804f03c922a63c61971963f80f2b1bd1761a"
                     .to_string()
                     .try_into()
                     .unwrap(),
-            ),
             payload_hash: [0; 32],
         };
         let res = message_to_cell(msg);
@@ -735,14 +734,12 @@ mod tests {
                 source_chain: ChainNameRaw::try_from("Testchain".to_string()).unwrap(),
                 message_id: "Some message".try_into().unwrap(),
             },
-            source_address: Address::from(
-                "0:4d3e1eb3fef978b01cfc0189d990804f03c922a63c61971963f80f2b1bd1761a"
-                    .to_string()
-                    .try_into()
-                    .unwrap(),
-            ),
+            source_address: "0:4d3e1eb3fef978b01cfc0189d990804f03c922a63c61971963f80f2b1bd1761a"
+                .to_string()
+                .try_into()
+                .unwrap(),
             destination_chain: ChainName::try_from("TestChain2".to_string()).unwrap(),
-            destination_address: Address::from("not-a-ton-address".to_string().try_into().unwrap()),
+            destination_address: "not-a-ton-address".to_string().try_into().unwrap(),
             payload_hash: [0; 32],
         };
         let res = message_to_cell(msg);
