@@ -558,7 +558,7 @@ mod tests {
             chain_name: ChainName::try_from("ethereum".to_owned()).unwrap(),
             verifier_set_diff_threshold: 0,
             encoder: Encoder::Abi,
-            key_type: multisig::key::KeyType::Ecdsa,
+            key_type: multisig::key::KeyType::Ed25519,
             domain_separator: [0; 32],
         }
     }

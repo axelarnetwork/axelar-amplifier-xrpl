@@ -90,7 +90,8 @@ fn deploy_chains(
                         .unwrap(),
                         service_name: protocol.service_name.clone(),
                         source_gateway_address: nonempty::String::try_from(
-                            "0x4F4495243837681061C4743b74B3eEdf548D56A5".to_string(),
+                            "0:4a5ed12ea588acced12ea588acc65e7ea1fe58b7a665e7ea1fe58b7a643719bc"
+                                .to_string(),
                         )
                         .unwrap(),
                         voting_threshold: Threshold::try_from((3, 4)).unwrap().try_into().unwrap(),
@@ -103,9 +104,8 @@ fn deploy_chains(
                             .to_string()
                             .try_into()
                             .unwrap(),
-                        msg_id_format:
-                            axelar_wasm_std::msg_id::MessageIdFormat::HexTxHashAndEventIndex,
-                        address_format: axelar_wasm_std::address::AddressFormat::Eip55,
+                        msg_id_format: axelar_wasm_std::msg_id::MessageIdFormat::HexTxHash,
+                        address_format: axelar_wasm_std::address::AddressFormat::Ton,
                     },
                 },
                 prover: ContractDeploymentInfo {
@@ -121,8 +121,8 @@ fn deploy_chains(
                         service_name: protocol.service_name.parse().unwrap(),
                         chain_name: chain_name.parse().unwrap(),
                         verifier_set_diff_threshold: 0,
-                        encoder: Encoder::Abi,
-                        key_type: KeyType::Ecdsa,
+                        encoder: Encoder::Ton,
+                        key_type: KeyType::Ed25519,
                         domain_separator: [0; 32],
                     },
                 },
@@ -194,7 +194,7 @@ fn deploy_chains(
                         .trim_matches(|c| c == '"' || c == '/'),
                 )
                 .unwrap(),
-                msg_id_format: axelar_wasm_std::msg_id::MessageIdFormat::HexTxHashAndEventIndex,
+                msg_id_format: axelar_wasm_std::msg_id::MessageIdFormat::HexTxHash,
             },
         )?;
     }
@@ -422,14 +422,14 @@ fn coordinator_one_click_message_verification_and_routing_succeeds() {
     let deployed_chain_msgs = vec![Message {
         cc_id: CrossChainId::new(
             chain_name.clone(),
-            "0x88d7956fd7b6fcec846548d83bd25727f2585b4be3add21438ae9fbb34625924-3",
+            "0x88d7956fd7b6fcec846548d83bd25727f2585b4be3add21438ae9fbb34625924",
         )
         .unwrap(),
-        source_address: "0xBf12773B490e1Deb57039061AAcFA2A87DEaC9b9"
+        source_address: "-1:ed12ea588acc65e7ea1fe58b7a64a5ed12ea588acc65e7ea1fe58b7a643719bc"
             .to_string()
             .try_into()
             .unwrap(),
-        destination_address: "0xce16F69375520ab01377ce7B88f5BA8C48F8D666"
+        destination_address: "0:831a8a608c7561d1740198b4b78beb3028ed12ea588acc65e7ea1fe58b7a64a5"
             .to_string()
             .try_into()
             .unwrap(),
@@ -446,14 +446,14 @@ fn coordinator_one_click_message_verification_and_routing_succeeds() {
     let incoming_msgs = vec![Message {
         cc_id: CrossChainId::new(
             chain1.chain_name.clone(),
-            "0x88d7956fd7b6fcec846548d83bd25727f2585b4be3add21438ae9fbb34625924-3",
+            "0x88d7956fd7b6fcec846548d83bd25727f2585b4be3add21438ae9fbb34625924",
         )
         .unwrap(),
-        source_address: "0xBf12773B490e1Deb57039061AAcFA2A87DEaC9b9"
+        source_address: "-1:ed12ea588acc65e7ea1fe58b7a64a5ed12ea588acc65e7ea1fe58b7a643719bc"
             .to_string()
             .try_into()
             .unwrap(),
-        destination_address: "0xce16F69375520ab01377ce7B88f5BA8C48F8D666"
+        destination_address: "0:831a8a608c7561d1740198b4b78beb3028ed12ea588acc65e7ea1fe58b7a64a5"
             .to_string()
             .try_into()
             .unwrap(),
@@ -584,7 +584,7 @@ fn coordinator_one_click_message_verification_and_routing_succeeds() {
             protocol.governance_address.clone(),
             &multisig_prover::msg::ExecuteMsg::ConstructProof(vec![CrossChainId::new(
                 chain1.chain_name.clone(),
-                "0x88d7956fd7b6fcec846548d83bd25727f2585b4be3add21438ae9fbb34625924-3",
+                "0x88d7956fd7b6fcec846548d83bd25727f2585b4be3add21438ae9fbb34625924",
             )
             .unwrap()])
         )

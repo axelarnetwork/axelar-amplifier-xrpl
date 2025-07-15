@@ -587,9 +587,7 @@ fn compute_data_hash(msgs: &[Message]) -> Result<Hash, TonAddressParseError> {
         concatenated.extend(source_chain.to_string().as_bytes());
         concatenated.extend(source_contract_address.as_bytes());
 
-        let ton_address_hash_buffer = TonAddress::from_str(&contract_address)?
-            .hash_part
-            .to_vec();
+        let ton_address_hash_buffer = TonAddress::from_str(&contract_address)?.hash_part.to_vec();
 
         concatenated.extend(ton_address_hash_buffer);
         concatenated.extend(destination_chain.to_string().as_bytes());
@@ -621,7 +619,11 @@ fn compute_verifier_set_hash(verifier_set: &VerifierSet) -> Result<Hash, TonCell
         let signer = verifier_set.signers.get(*key).unwrap(); // assert: key in verifier_set.signers since we iterate over the keys
 
         let mut hasher = Keccak256::new();
-        hasher.update(u16::try_from(i).map_err(|_| TonCellError::InternalError("Too many signers".to_string()))?.to_be_bytes()); // assert: less than 2^16 = 65536 signers
+        hasher.update(
+            u16::try_from(i)
+                .map_err(|_| TonCellError::InternalError("Too many signers".to_string()))?
+                .to_be_bytes(),
+        ); // assert: less than 2^16 = 65536 signers
         hasher.update(&signer.pub_key);
         hasher.update(signer.weight.to_be_bytes());
         hasher.update(current_hash);
@@ -638,7 +640,8 @@ pub fn compute_approve_messages_hash(
     verifier_set: &VerifierSet,
     domain_separator: &Hash,
 ) -> Result<Hash, TonCellError> {
-    let data_hash = compute_data_hash(msgs).map_err(|_| TonCellError::InternalError("Failed to compute data hash".to_string()))?;
+    let data_hash = compute_data_hash(msgs)
+        .map_err(|_| TonCellError::InternalError("Failed to compute data hash".to_string()))?;
     let signers_hash = compute_verifier_set_hash(verifier_set)?;
 
     let mut result = Vec::new();
