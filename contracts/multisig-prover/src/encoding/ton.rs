@@ -18,10 +18,10 @@ pub fn payload_digest(
 ) -> Result<Hash, ContractError> {
     let hash = match payload {
         Payload::Messages(msgs) => {
-            compute_approve_messages_hash(msgs, current_set, domain_separator)
+            compute_approve_messages_hash(msgs, current_set, domain_separator).map_err(|_| ContractError::TonError)?
         }
         Payload::VerifierSet(candidate_set) => {
-            compute_signer_rotation_hash(candidate_set, current_set, domain_separator)
+            compute_signer_rotation_hash(candidate_set, current_set, domain_separator).map_err(|_| ContractError::TonError)?
         }
     };
 

@@ -13,6 +13,7 @@ use router_api::Message;
 use sha3::{Digest, Keccak256};
 use tonlib_core::cell::{Cell, CellBuilder, CellParser, TonCellError};
 use tonlib_core::tlb_types::traits::TLBObject;
+use tonlib_core::types::TonAddressParseError;
 use tonlib_core::TonAddress;
 
 const OP_APPROVE_MESSAGES: usize = 0x00000028;
@@ -555,7 +556,7 @@ pub fn build_signer_rotation_body(
     signatures: Vec<SignerWithSig>,
 ) -> Result<Cell, TonCellError> {
     let proof = construct_proof(current_set, signatures)?;
-    let candidate_config_hash = compute_verifier_set_hash(candidate_set);
+    let candidate_config_hash = compute_verifier_set_hash(candidate_set)?;
     let candidate_config_hash_cell = buffer_to_cell(candidate_config_hash.to_vec())?;
 
     let mut builder = CellBuilder::new();
@@ -570,11 +571,7 @@ pub fn build_signer_rotation_body(
 ///
 /// # Parameters
 /// - `msgs`: A slice of `Message` structures representing the cross-chain messages to hash.
-///
-/// # Panics
-/// - Panics if:
-///   - `TonAddress::from_str` fails to parse `destination_address` (this must be pre-validated).
-fn compute_data_hash(msgs: &[Message]) -> Hash {
+fn compute_data_hash(msgs: &[Message]) -> Result<Hash, TonAddressParseError> {
     let mut concatenated: Vec<u8> = Vec::new();
 
     for msg in msgs.iter().cloned() {
@@ -590,11 +587,7 @@ fn compute_data_hash(msgs: &[Message]) -> Hash {
         concatenated.extend(source_chain.to_string().as_bytes());
         concatenated.extend(source_contract_address.as_bytes());
 
-        let ton_address_hash_buffer = TonAddress::from_str(&contract_address)
-            .map_err(|_| {
-                TonCellError::InternalError("Failed to parse Address as TonAddress".to_string())
-            })
-            .unwrap()
+        let ton_address_hash_buffer = TonAddress::from_str(&contract_address)?
             .hash_part
             .to_vec();
 
@@ -603,12 +596,12 @@ fn compute_data_hash(msgs: &[Message]) -> Hash {
         concatenated.extend(payload_hash.as_slice());
     }
 
-    Keccak256::digest(concatenated).into()
+    Ok(Keccak256::digest(concatenated).into())
 }
 
 /// Calculates the hash of given `VerifierSet` in the same way as the TON gateway.
 #[allow(clippy::arithmetic_side_effects)]
-fn compute_verifier_set_hash(verifier_set: &VerifierSet) -> Hash {
+fn compute_verifier_set_hash(verifier_set: &VerifierSet) -> Result<Hash, TonCellError> {
     let mut data = Vec::new();
     data.extend(verifier_set.threshold.to_be_bytes());
 
@@ -628,14 +621,14 @@ fn compute_verifier_set_hash(verifier_set: &VerifierSet) -> Hash {
         let signer = verifier_set.signers.get(*key).unwrap(); // assert: key in verifier_set.signers since we iterate over the keys
 
         let mut hasher = Keccak256::new();
-        hasher.update((u16::try_from(i).unwrap()).to_be_bytes()); // assert: less than 2^16 = 65536 signers
+        hasher.update(u16::try_from(i).map_err(|_| TonCellError::InternalError("Too many signers".to_string()))?.to_be_bytes()); // assert: less than 2^16 = 65536 signers
         hasher.update(&signer.pub_key);
         hasher.update(signer.weight.to_be_bytes());
         hasher.update(current_hash);
         current_hash = hasher.finalize();
     }
 
-    current_hash.into()
+    Ok(current_hash.into())
 }
 
 /// Calculates the hash of given `Message` slice and `VerifierSet` in the same way as the TON gateway,
@@ -644,16 +637,16 @@ pub fn compute_approve_messages_hash(
     msgs: &[Message],
     verifier_set: &VerifierSet,
     domain_separator: &Hash,
-) -> Hash {
-    let data_hash = compute_data_hash(msgs);
-    let signers_hash = compute_verifier_set_hash(verifier_set);
+) -> Result<Hash, TonCellError> {
+    let data_hash = compute_data_hash(msgs).map_err(|_| TonCellError::InternalError("Failed to compute data hash".to_string()))?;
+    let signers_hash = compute_verifier_set_hash(verifier_set)?;
 
     let mut result = Vec::new();
     result.extend(data_hash.to_vec());
     result.extend(signers_hash.to_vec());
     result.extend(domain_separator.to_vec());
 
-    Keccak256::digest(result).into()
+    Ok(Keccak256::digest(result).into())
 }
 
 /// Calculates the hash of given two `VerifierSet` in the same way as the TON gateway, for use in
@@ -662,9 +655,9 @@ pub fn compute_signer_rotation_hash(
     candidate_set: &VerifierSet,
     current_set: &VerifierSet,
     domain_separator: &Hash,
-) -> Hash {
-    let candidate_set_hash = compute_verifier_set_hash(candidate_set);
-    let current_set_hash = compute_verifier_set_hash(current_set);
+) -> Result<Hash, TonCellError> {
+    let candidate_set_hash = compute_verifier_set_hash(candidate_set)?;
+    let current_set_hash = compute_verifier_set_hash(current_set)?;
 
     let mut result = Vec::new();
 
@@ -672,7 +665,7 @@ pub fn compute_signer_rotation_hash(
     result.extend(current_set_hash.to_vec());
     result.extend(domain_separator);
 
-    Keccak256::digest(result).into()
+    Ok(Keccak256::digest(result).into())
 }
 
 // A wrapper to encode a TON `Cell` as a hex string.
