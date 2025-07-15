@@ -678,10 +678,11 @@ pub fn cell_to_boc_hex(cell: Cell) -> Result<String, TonCellError> {
 
 #[cfg(test)]
 mod tests {
+    use router_api::{Address, ChainName, ChainNameRaw, CrossChainId, Message};
     use tonlib_core::cell::Cell;
     use tonlib_core::tlb_types::traits::TLBObject;
 
-    use crate::{buffer_to_cell, cell_to_boc_hex, CellTo};
+    use crate::{buffer_to_cell, cell_to_boc_hex, message_to_cell, CellTo};
 
     const LOREM_STR: &str = "Lorem ipsum dolor sit amet ullamco ipsum. Est nulla veniam fugiat ut consectetur mollit ipsum duis nostrud ullamco cupidatat ad Lorem eu incididunt adipisicing laboris nisi. Ad mollit exercitation, culpa aute esse incididunt officia anim sint adipisicing labore anim exercitation aliquip irure id nisi tempor. Ipsum anim dolore sit incididunt ipsum nisi.  Id quis veniam occaecat est ad. Aliquip adipisicing culpa sit esse eiusmod laboris voluptate, sit. Esse amet esse occaecat laboris minim culpa officia ullamco et reprehenderit proident occaecat ullamco ipsum sunt ipsum est quis enim esse veniam est ut. Deserunt fugiat aliqua proident officia enim laboris Lorem qui dolor irure qui.  Excepteur elit est adipisicing ex in commodo eiusmod elit ea minim velit, et id aute voluptate velit fugiat culpa. Ipsum fugiat non in adipisicing eu voluptate fugiat occaecat ex enim consequat consectetur ex in. Magna reprehenderit id nisi sunt pariatur minim officia elit a";
     const LOREM_BOC: &str = "b5ee9c7241020b010003e50001c04c6f72656d20697073756d20646f6c6f722073697420616d657420756c6c616d636f20697073756d2e20457374206e756c6c612076656e69616d2066756769617420757420636f6e7365637465747572206d6f6c6c697420697073756d2064750101c06973206e6f737472756420756c6c616d636f20637570696461746174206164204c6f72656d20657520696e6369646964756e74206164697069736963696e67206c61626f726973206e6973692e204164206d6f6c6c69742065786572636974610201c074696f6e2c2063756c70612061757465206573736520696e6369646964756e74206f66666963696120616e696d2073696e74206164697069736963696e67206c61626f726520616e696d20657865726369746174696f6e20616c6971756970200301c06972757265206964206e6973692074656d706f722e20497073756d20616e696d20646f6c6f72652073697420696e6369646964756e7420697073756d206e6973692e2020496420717569732076656e69616d206f6363616563617420657374200401c061642e20416c6971756970206164697069736963696e672063756c706120736974206573736520656975736d6f64206c61626f72697320766f6c7570746174652c207369742e204573736520616d65742065737365206f63636165636174206c0501c061626f726973206d696e696d2063756c7061206f66666963696120756c6c616d636f20657420726570726568656e64657269742070726f6964656e74206f6363616563617420756c6c616d636f20697073756d2073756e7420697073756d20650601c07374207175697320656e696d20657373652076656e69616d206573742075742e204465736572756e742066756769617420616c697175612070726f6964656e74206f66666963696120656e696d206c61626f726973204c6f72656d20717569200701c0646f6c6f72206972757265207175692e202045786365707465757220656c697420657374206164697069736963696e6720657820696e20636f6d6d6f646f20656975736d6f6420656c6974206561206d696e696d2076656c69742c20657420690801c064206175746520766f6c7570746174652076656c6974206675676961742063756c70612e20497073756d20667567696174206e6f6e20696e206164697069736963696e6720657520766f6c75707461746520667567696174206f6363616563610901c07420657820656e696d20636f6e73657175617420636f6e736563746574757220657820696e2e204d61676e6120726570726568656e6465726974206964206e6973692073756e74207061726961747572206d696e696d206f66666963696120650a000a6c697420619267e790";
@@ -704,5 +705,47 @@ mod tests {
         let s = cell.cell_to_string();
 
         assert_eq!(s, LOREM_STR);
+    }
+
+    #[test]
+    fn message_to_cell_okay() {
+        let msg = Message {
+            cc_id: CrossChainId {
+                source_chain: ChainNameRaw::try_from("Testchain".to_string()).unwrap(),
+                message_id: "Some message".try_into().unwrap(),
+            },
+            source_address: Address::from("from-some-address".to_string().try_into().unwrap()),
+            destination_chain: ChainName::try_from("TestChain2".to_string()).unwrap(),
+            destination_address: Address::from(
+                "0:4d3e1eb3fef978b01cfc0189d990804f03c922a63c61971963f80f2b1bd1761a"
+                    .to_string()
+                    .try_into()
+                    .unwrap(),
+            ),
+            payload_hash: [0; 32],
+        };
+        let res = message_to_cell(msg);
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn message_to_cell_invalid_ton_address() {
+        let msg = Message {
+            cc_id: CrossChainId {
+                source_chain: ChainNameRaw::try_from("Testchain".to_string()).unwrap(),
+                message_id: "Some message".try_into().unwrap(),
+            },
+            source_address: Address::from(
+                "0:4d3e1eb3fef978b01cfc0189d990804f03c922a63c61971963f80f2b1bd1761a"
+                    .to_string()
+                    .try_into()
+                    .unwrap(),
+            ),
+            destination_chain: ChainName::try_from("TestChain2".to_string()).unwrap(),
+            destination_address: Address::from("not-a-ton-address".to_string().try_into().unwrap()),
+            payload_hash: [0; 32],
+        };
+        let res = message_to_cell(msg);
+        assert!(res.is_err());
     }
 }
