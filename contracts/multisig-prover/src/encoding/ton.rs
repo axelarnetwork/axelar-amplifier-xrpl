@@ -103,6 +103,7 @@ mod tests {
 
     #[test]
     fn should_encode_approve_messages_with_invalid_signatures() {
+        // will be checked by the gateway
         let verifier_set = curr_ton_verifier_set();
         let payload = Payload::Messages(ton_messages());
 
