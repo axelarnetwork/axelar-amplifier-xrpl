@@ -298,12 +298,14 @@ fn val_reader_weighted_signer(parser: &mut CellParser) -> Result<WeightedSigner,
         .map_err(|_| TonCellError::InternalError("Failed to convert signer bytes".to_string()))?;
 
     let weight = parser.load_uint(128)?;
-    let weight = weight.to_u128().unwrap();
+    let weight = weight.to_u128().ok_or(TonCellError::InternalError(
+        "Failed to cast to u128".to_string(),
+    ))?; // this cannot fail
 
     let signature_bytes = parser.load_bits(512)?;
     let signature: [u8; 64] = signature_bytes.try_into().map_err(|_| {
         TonCellError::InternalError("Failed to convert signature bytes".to_string())
-    })?;
+    })?; // this cannot fail
 
     Ok(WeightedSigner::new(signer, weight, signature))
 }
@@ -705,6 +707,19 @@ mod tests {
         let s = cell.cell_to_string();
 
         assert_eq!(s, LOREM_STR);
+    }
+
+    #[test]
+    fn should_encode_and_decode_empty_string() {
+        let empty_string = vec![];
+
+        let cell = buffer_to_cell(empty_string.clone()).unwrap();
+        let cell_encoded = cell_to_boc_hex(cell).unwrap();
+
+        let cell_decoded = Cell::from_boc_hex(&cell_encoded).unwrap().to_arc();
+        let string_decoded = cell_decoded.cell_to_string();
+
+        assert_eq!(string_decoded.as_bytes(), empty_string);
     }
 
     #[test]

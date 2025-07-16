@@ -60,6 +60,7 @@ mod tests {
     use multisig::msg::{Signer, SignerWithSig};
     use multisig::verifier_set::VerifierSet;
     use router_api::{CrossChainId, Message};
+    use ton_utils::WeightedSigners;
 
     use super::{encode_execute_data, payload_digest};
     use crate::Payload;
@@ -136,6 +137,26 @@ mod tests {
     }
 
     #[test]
+    fn should_reject_encode_approve_messages_incorrect_signature_type() {
+        let verifier_set = incorrect_key_type_curr_ton_verifier_set();
+        let payload = Payload::Messages(ton_messages());
+
+        let sigs: Vec<_> = vec![
+            "6dce1b2f0a4e14c81d7ed24326d16cb38a596dd34318f0c28f84041cef8537331750c6273898dd8ea3d614ab5101cab27eb36f00940c0dbdcf2111bc8bd79f0f",
+            "cbda5213e3a30172fb88b4038c39d223be29bc4656a36c4078ec7eaaaf8e4e496d72a0ba3af1e1d53f1d988d7bf68ab6968654bf031b915fa660245c09a81c07",
+            "9b7265c9660f8dd37e99e6c8e4e5fc020a1f0ddb9d55c3f352e826990af144485903cb41b47d6091f7c753ff5de667414be03bfe6a1d3f06513d949005a3500c",
+        ].into_iter().map(|sig| HexBinary::from_hex(sig).unwrap()).collect();
+
+        let signers_with_sigs = signers_with_sigs(verifier_set.signers.values(), sigs);
+
+        // discard the incorrect verifier set and load the correct ones
+        let verifier_set = curr_ton_verifier_set();
+
+        let encoded_execute_data = encode_execute_data(&verifier_set, signers_with_sigs, &payload);
+        assert!(encoded_execute_data.is_err());
+    }
+
+    #[test]
     fn should_encode_rotate_signers() {
         let verifier_set = curr_ton_verifier_set();
 
@@ -206,6 +227,13 @@ mod tests {
             hex_encode(payload_digest.to_vec().as_slice()),
             "6fda89e65b639ef93667446d1b083a1038be0d3f004db53886fd26b3970b98ba"
         );
+    }
+
+    #[test]
+    fn should_reject_conversion_incorrect_key_type() {
+        let incorrect_verifier_set = incorrect_key_type_curr_ton_verifier_set();
+        let weighted_signers = WeightedSigners::try_from(incorrect_verifier_set);
+        assert!(weighted_signers.is_err());
     }
 
     fn signers_with_sigs<'a>(
