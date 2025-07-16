@@ -37,9 +37,10 @@ impl VotingVerifierContract {
                         .try_into()
                         .unwrap(),
                     service_name: protocol.service_name.clone(),
-                    source_gateway_address: "0x4F4495243837681061C4743b74B3eEdf548D56A5"
-                        .try_into()
-                        .unwrap(),
+                    source_gateway_address:
+                        "0:00194aad8e422bedf43fee746d6d929d369dbab25468a69d513706ea6978b63a"
+                            .try_into()
+                            .unwrap(),
                     voting_threshold,
                     block_expiry: 10.try_into().unwrap(),
                     confirmation_height: 5,
@@ -50,8 +51,8 @@ impl VotingVerifierContract {
                         .to_string()
                         .try_into()
                         .unwrap(),
-                    msg_id_format: axelar_wasm_std::msg_id::MessageIdFormat::HexTxHashAndEventIndex,
-                    address_format: axelar_wasm_std::address::AddressFormat::Eip55,
+                    msg_id_format: axelar_wasm_std::msg_id::MessageIdFormat::HexTxHash,
+                    address_format: axelar_wasm_std::address::AddressFormat::Ton,
                 },
                 &[],
                 "voting_verifier",

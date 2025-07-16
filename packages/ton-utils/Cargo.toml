@@ -9,6 +9,7 @@ license.workspace = true
 axelar-wasm-std = { workspace = true, features = ["derive"] }
 cosmwasm-std = "2.1.4"
 error-stack = { workspace = true }
+itertools.workspace = true
 multisig = { workspace = true, features = ["library"] }
 num-bigint = "0.4.6"
 num-traits = { workspace = true }

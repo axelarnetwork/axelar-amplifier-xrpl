@@ -128,7 +128,7 @@ fn make_verifier_set(
         .change_context(ContractError::FailedToBuildVerifierSet)?;
 
     let min_num_verifiers = service_registry
-        .service(config.service_name.clone())
+        .service(config.service_name.clone(), Some(config.chain_name.clone()))
         .change_context(ContractError::FailedToBuildVerifierSet)?
         .min_num_verifiers;
 
@@ -558,7 +558,7 @@ mod tests {
             chain_name: ChainName::try_from("ethereum".to_owned()).unwrap(),
             verifier_set_diff_threshold: 0,
             encoder: Encoder::Abi,
-            key_type: multisig::key::KeyType::Ecdsa,
+            key_type: multisig::key::KeyType::Ed25519,
             domain_separator: [0; 32],
         }
     }

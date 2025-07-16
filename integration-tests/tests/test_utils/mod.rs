@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use axelar_core_std::nexus::query::IsChainRegisteredResponse;
-use axelar_wasm_std::msg_id::HexTxHashAndEventIndex;
+use axelar_wasm_std::msg_id::HexTxHash;
 use axelar_wasm_std::voting::{PollId, Vote};
 use axelar_wasm_std::{nonempty, Participant, Threshold};
 use coordinator::msg::{ChainContractsResponse, ExecuteMsg as CoordinatorExecuteMsg, VerifierInfo};
@@ -20,7 +20,6 @@ use integration_tests::rewards_contract::RewardsContract;
 use integration_tests::router_contract::RouterContract;
 use integration_tests::service_registry_contract::ServiceRegistryContract;
 use integration_tests::voting_verifier_contract::VotingVerifierContract;
-use k256::ecdsa;
 use multisig::key::{KeyType, PublicKey};
 use multisig::verifier_set::VerifierSet;
 use multisig_prover::msg::VerifierSetResponse;
@@ -28,7 +27,7 @@ use rewards::PoolId;
 use router_api::{Address, ChainName, CrossChainId, GatewayDirection, Message};
 use service_registry_api::msg::ExecuteMsg;
 use sha3::{Digest, Keccak256};
-use tofn::ecdsa::KeyPair;
+use tofn::ed25519::KeyPair;
 
 pub const AXL_DENOMINATION: &str = "uaxl";
 
@@ -225,8 +224,8 @@ pub fn sign_proof(
     let session_id = multisig_session_id(response);
 
     for verifier in verifiers {
-        let signature = tofn::ecdsa::sign(
-            verifier.key_pair.signing_key(),
+        let signature = tofn::ed25519::sign(
+            &verifier.key_pair,
             &HexBinary::from_hex(&msg_to_sign)
                 .unwrap()
                 .as_slice()
@@ -235,14 +234,12 @@ pub fn sign_proof(
         )
         .unwrap();
 
-        let sig = ecdsa::Signature::from_der(&signature).unwrap();
-
         let response = protocol.multisig.execute(
             &mut protocol.app,
             verifier.addr.clone(),
             &multisig::msg::ExecuteMsg::SubmitSignature {
                 session_id,
-                signature: HexBinary::from(sig.to_vec()),
+                signature: HexBinary::from(signature.to_vec()),
             },
         );
         assert!(response.is_ok());
@@ -367,10 +364,6 @@ pub fn chain_contracts_info_from_coordinator(
     query_response.unwrap()
 }
 
-pub fn assert_chain_contracts_details_are_equal(chain_contracts_record: ChainContractsResponse) {
-    goldie::assert_json!(chain_contracts_record);
-}
-
 #[allow(clippy::arithmetic_side_effects)]
 pub fn advance_height(app: &mut AxelarApp, increment: u64) {
     let cur_block = app.block_info();
@@ -489,7 +482,7 @@ pub fn generate_key(seed: u32) -> KeyPair {
     let mut result = [0; 64];
     result[0..seed_bytes.len()].copy_from_slice(seed_bytes.as_slice());
     let secret_recovery_key = result.as_slice().try_into().unwrap();
-    tofn::ecdsa::keygen(&secret_recovery_key, b"tofn nonce").unwrap()
+    tofn::ed25519::keygen(&secret_recovery_key, b"tofn nonce").unwrap()
 }
 
 pub struct Verifier {
@@ -595,9 +588,8 @@ pub fn create_verifier_set_poll(
         app,
         relayer_addr.clone(),
         &voting_verifier::msg::ExecuteMsg::VerifyVerifierSet {
-            message_id: HexTxHashAndEventIndex {
+            message_id: HexTxHash {
                 tx_hash: random_32_bytes(),
-                event_index: 0,
             }
             .to_string()
             .parse()
@@ -619,7 +611,7 @@ pub fn verifiers_to_verifier_set(
     for verifier in verifiers {
         let encoded_verifying_key =
             HexBinary::from(verifier.key_pair.encoded_verifying_key().to_vec());
-        let pub_key = PublicKey::try_from((KeyType::Ecdsa, encoded_verifying_key)).unwrap();
+        let pub_key = PublicKey::try_from((KeyType::Ed25519, encoded_verifying_key)).unwrap();
         pub_keys.push(pub_key);
     }
 
@@ -741,16 +733,6 @@ pub fn setup_chain(protocol: &mut Protocol, chain_name: ChainName) -> Chain {
     let response = protocol.coordinator.execute(
         &mut protocol.app,
         protocol.governance_address.clone(),
-        &CoordinatorExecuteMsg::RegisterProverContract {
-            chain_name: chain_name.clone(),
-            new_prover_addr: multisig_prover.contract_addr.to_string(),
-        },
-    );
-    assert!(response.is_ok());
-
-    let response = protocol.coordinator.execute(
-        &mut protocol.app,
-        protocol.governance_address.clone(),
         &CoordinatorExecuteMsg::RegisterChain {
             chain_name: chain_name.clone(),
             prover_address: multisig_prover.contract_addr.to_string(),
@@ -785,7 +767,7 @@ pub fn setup_chain(protocol: &mut Protocol, chain_name: ChainName) -> Chain {
         &router_api::msg::ExecuteMsg::RegisterChain {
             chain: chain_name.clone(),
             gateway_address: gateway.contract_addr.to_string().try_into().unwrap(),
-            msg_id_format: axelar_wasm_std::msg_id::MessageIdFormat::HexTxHashAndEventIndex,
+            msg_id_format: axelar_wasm_std::msg_id::MessageIdFormat::HexTxHash,
         },
     );
     assert!(response.is_ok());
@@ -1016,18 +998,17 @@ pub fn submit_pubkeys(protocol: &mut Protocol, verifiers: &Vec<Verifier>) {
     for verifier in verifiers {
         let address_hash = Keccak256::digest(verifier.addr.as_bytes());
 
-        let sig = tofn::ecdsa::sign(
-            verifier.key_pair.signing_key(),
+        let sig = tofn::ed25519::sign(
+            &verifier.key_pair,
             &address_hash.as_slice().try_into().unwrap(),
         )
         .unwrap();
-        let sig = ecdsa::Signature::from_der(&sig).unwrap();
 
         let response = protocol.multisig.execute(
             &mut protocol.app,
             verifier.addr.clone(),
             &multisig::msg::ExecuteMsg::RegisterPublicKey {
-                public_key: PublicKey::Ecdsa(HexBinary::from(
+                public_key: PublicKey::Ed25519(HexBinary::from(
                     verifier.key_pair.encoded_verifying_key(),
                 )),
                 signed_sender_address: HexBinary::from(sig.to_vec()),

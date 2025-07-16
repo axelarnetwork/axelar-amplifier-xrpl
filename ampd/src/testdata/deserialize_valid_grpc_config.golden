@@ -1,5 +1,4 @@
 {
-  "health_check_bind_addr": "0.0.0.0:3000",
   "tm_jsonrpc": "http://localhost:26657/",
   "tm_grpc": "tcp://localhost:9090",
   "tm_grpc_timeout": {
@@ -10,7 +9,8 @@
     "retry_delay": "1s",
     "retry_max_attempts": 3,
     "stream_timeout": "15s",
-    "stream_buffer_size": 100000
+    "stream_buffer_size": 100000,
+    "delay": "1s"
   },
   "broadcast": {
     "chain_id": "axelar-dojo-1",
@@ -44,5 +44,9 @@
     "global_concurrency_limit": 2048,
     "concurrency_limit_per_connection": 256,
     "request_timeout": "30s"
+  },
+  "monitoring_server": {
+    "enabled": false,
+    "bind_address": "127.0.0.1:3000"
   }
 }

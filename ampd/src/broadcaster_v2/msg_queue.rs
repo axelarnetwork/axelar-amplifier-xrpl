@@ -1,5 +1,6 @@
 use core::pin::Pin;
 use core::task::{Context, Poll};
+use std::fmt::Debug;
 use std::future::Future;
 
 use axelar_wasm_std::nonempty;
@@ -14,7 +15,7 @@ use tokio::time;
 use tokio_stream::adapters::Fuse;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
-use tracing::warn;
+use tracing::{instrument, warn};
 use valuable::Valuable;
 
 use super::{broadcaster, Error, Result};
@@ -59,7 +60,7 @@ pub struct QueueMsg {
 /// // Enqueue without caring about the result
 /// msg_queue_client.enqueue_and_forget(msg).await?;
 /// ```
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct MsgQueueClient<T>
 where
     T: cosmos::CosmosClient,
@@ -213,6 +214,7 @@ pin_project! {
     /// This provides efficient batching while ensuring timely processing.
     /// The Stream implementation yields non-empty vectors of queued messages
     /// that are ready for broadcasting.
+    #[derive(Debug)]
     pub struct MsgQueue {
         #[pin]
         stream: Fuse<ReceiverStream<QueueMsg>>,
@@ -323,15 +325,16 @@ fn handle_queue_error(msg: QueueMsg, err: Error) {
         tx_res_callback, ..
     } = msg;
 
-    let err = report!(err);
+    let report = report!(err);
     warn!(
-        error = LoggableError::from(&err).as_value(),
+        error = LoggableError::from(&report).as_value(),
         "message dropped"
     );
 
-    let _ = tx_res_callback.send(Err(err));
+    let _ = tx_res_callback.send(Err(report));
 }
 
+#[derive(Debug)]
 struct Queue {
     msgs: Vec<QueueMsg>,
     gas_cost: Gas,
@@ -347,6 +350,7 @@ impl Queue {
         }
     }
 
+    #[instrument(skip(handle_error))]
     pub fn push_or<F>(&mut self, msg: QueueMsg, handle_error: F) -> Option<nonempty::Vec<QueueMsg>>
     where
         F: FnOnce(QueueMsg, Error),
@@ -732,7 +736,7 @@ mod tests {
         assert_err_contains!(rx.await, Error, Error::ReceiveTxResult(_));
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn msg_queue_stream_timeout() {
         let gas_cap = 1000u64;
         let base_account = BaseAccount {
@@ -765,18 +769,18 @@ mod tests {
         .await
         .unwrap();
 
-        let (mut msg_queue, mut msg_queue_client) = MsgQueue::new_msg_queue_and_client(
-            broadcaster,
-            10,
-            gas_cap,
-            time::Duration::from_secs(3),
-        );
+        let timeout = time::Duration::from_secs(3);
+        let (mut msg_queue, mut msg_queue_client) =
+            MsgQueue::new_msg_queue_and_client(broadcaster, 10, gas_cap, timeout);
 
         msg_queue_client
             .enqueue_and_forget(dummy_msg())
             .await
             .unwrap();
+
+        let start = time::Instant::now();
         let actual = msg_queue.next().await.unwrap();
+        let elapsed = start.elapsed();
 
         assert_eq!(actual.as_ref().len(), 1);
         assert_eq!(actual.as_ref()[0].gas, gas_cap / 10);
@@ -784,9 +788,13 @@ mod tests {
             actual.as_ref()[0].msg.type_url,
             "/cosmos.bank.v1beta1.MsgSend"
         );
+        assert!(elapsed >= timeout);
+
+        // explicitly keep the stream alive until the end of the test
+        drop(msg_queue_client);
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn msg_queue_gas_capacity() {
         let gas_cap = 1000;
         let gas_cost = 100;
@@ -907,7 +915,7 @@ mod tests {
         handle.await.unwrap();
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn msg_queue_gas_overflow() {
         let gas_cap = u64::MAX;
         let gas_cost = gas_cap - 1;

@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use axelar_wasm_std::error::ContractError;
 use axelar_wasm_std::voting::{PollId, Vote};
-use axelar_wasm_std::{nonempty, Threshold, VerificationStatus};
+use axelar_wasm_std::{nonempty, nonempty_str, Threshold, VerificationStatus};
 use coordinator::events::ContractInstantiation;
 use coordinator::msg::{
     ContractDeploymentInfo, DeploymentParams, ManualDeploymentParams, ProverMsg, VerifierMsg,
@@ -12,7 +12,7 @@ use cosmwasm_std::testing::MockApi;
 use cosmwasm_std::{Binary, HexBinary};
 use cw_multi_test::AppResponse;
 use error_stack::Report;
-use events_derive::try_from;
+use events::try_from;
 use integration_tests::contract::Contract;
 use integration_tests::gateway_contract::GatewayContract;
 use integration_tests::multisig_prover_contract::MultisigProverContract;
@@ -90,7 +90,8 @@ fn deploy_chains(
                         .unwrap(),
                         service_name: protocol.service_name.clone(),
                         source_gateway_address: nonempty::String::try_from(
-                            "0x4F4495243837681061C4743b74B3eEdf548D56A5".to_string(),
+                            "0:4a5ed12ea588acced12ea588acc65e7ea1fe58b7a665e7ea1fe58b7a643719bc"
+                                .to_string(),
                         )
                         .unwrap(),
                         voting_threshold: Threshold::try_from((3, 4)).unwrap().try_into().unwrap(),
@@ -103,9 +104,8 @@ fn deploy_chains(
                             .to_string()
                             .try_into()
                             .unwrap(),
-                        msg_id_format:
-                            axelar_wasm_std::msg_id::MessageIdFormat::HexTxHashAndEventIndex,
-                        address_format: axelar_wasm_std::address::AddressFormat::Eip55,
+                        msg_id_format: axelar_wasm_std::msg_id::MessageIdFormat::HexTxHash,
+                        address_format: axelar_wasm_std::address::AddressFormat::Ton,
                     },
                 },
                 prover: ContractDeploymentInfo {
@@ -121,8 +121,8 @@ fn deploy_chains(
                         service_name: protocol.service_name.parse().unwrap(),
                         chain_name: chain_name.parse().unwrap(),
                         verifier_set_diff_threshold: 0,
-                        encoder: Encoder::Abi,
-                        key_type: KeyType::Ecdsa,
+                        encoder: Encoder::Ton,
+                        key_type: KeyType::Ed25519,
                         domain_separator: [0; 32],
                     },
                 },
@@ -136,10 +136,24 @@ fn deploy_chains(
     let response = protocol.coordinator.execute(
         &mut protocol.app,
         protocol.governance_address.clone(),
-        &coordinator::msg::ExecuteMsg::RegisterProverContract {
+        &coordinator::msg::ExecuteMsg::RegisterChain {
             chain_name: chain_name.parse().unwrap(),
-            new_prover_addr: contracts
+            prover_address: contracts
                 .multisig_prover
+                .contract_addr
+                .to_string()
+                .trim_matches(|c| c == '"' || c == '/')
+                .parse()
+                .unwrap(),
+            gateway_address: contracts
+                .gateway
+                .contract_addr
+                .to_string()
+                .trim_matches(|c| c == '"' || c == '/')
+                .parse()
+                .unwrap(),
+            voting_verifier_address: contracts
+                .voting_verifier
                 .contract_addr
                 .to_string()
                 .trim_matches(|c| c == '"' || c == '/')
@@ -180,7 +194,7 @@ fn deploy_chains(
                         .trim_matches(|c| c == '"' || c == '/'),
                 )
                 .unwrap(),
-                msg_id_format: axelar_wasm_std::msg_id::MessageIdFormat::HexTxHashAndEventIndex,
+                msg_id_format: axelar_wasm_std::msg_id::MessageIdFormat::HexTxHash,
             },
         )?;
     }
@@ -408,14 +422,14 @@ fn coordinator_one_click_message_verification_and_routing_succeeds() {
     let deployed_chain_msgs = vec![Message {
         cc_id: CrossChainId::new(
             chain_name.clone(),
-            "0x88d7956fd7b6fcec846548d83bd25727f2585b4be3add21438ae9fbb34625924-3",
+            "0x88d7956fd7b6fcec846548d83bd25727f2585b4be3add21438ae9fbb34625924",
         )
         .unwrap(),
-        source_address: "0xBf12773B490e1Deb57039061AAcFA2A87DEaC9b9"
+        source_address: "-1:ed12ea588acc65e7ea1fe58b7a64a5ed12ea588acc65e7ea1fe58b7a643719bc"
             .to_string()
             .try_into()
             .unwrap(),
-        destination_address: "0xce16F69375520ab01377ce7B88f5BA8C48F8D666"
+        destination_address: "0:831a8a608c7561d1740198b4b78beb3028ed12ea588acc65e7ea1fe58b7a64a5"
             .to_string()
             .try_into()
             .unwrap(),
@@ -432,14 +446,14 @@ fn coordinator_one_click_message_verification_and_routing_succeeds() {
     let incoming_msgs = vec![Message {
         cc_id: CrossChainId::new(
             chain1.chain_name.clone(),
-            "0x88d7956fd7b6fcec846548d83bd25727f2585b4be3add21438ae9fbb34625924-3",
+            "0x88d7956fd7b6fcec846548d83bd25727f2585b4be3add21438ae9fbb34625924",
         )
         .unwrap(),
-        source_address: "0xBf12773B490e1Deb57039061AAcFA2A87DEaC9b9"
+        source_address: "-1:ed12ea588acc65e7ea1fe58b7a64a5ed12ea588acc65e7ea1fe58b7a643719bc"
             .to_string()
             .try_into()
             .unwrap(),
-        destination_address: "0xce16F69375520ab01377ce7B88f5BA8C48F8D666"
+        destination_address: "0:831a8a608c7561d1740198b4b78beb3028ed12ea588acc65e7ea1fe58b7a64a5"
             .to_string()
             .try_into()
             .unwrap(),
@@ -570,7 +584,7 @@ fn coordinator_one_click_message_verification_and_routing_succeeds() {
             protocol.governance_address.clone(),
             &multisig_prover::msg::ExecuteMsg::ConstructProof(vec![CrossChainId::new(
                 chain1.chain_name.clone(),
-                "0x88d7956fd7b6fcec846548d83bd25727f2585b4be3add21438ae9fbb34625924-3",
+                "0x88d7956fd7b6fcec846548d83bd25727f2585b4be3add21438ae9fbb34625924",
             )
             .unwrap()])
         )
@@ -616,4 +630,50 @@ fn coordinator_one_click_query_verifier_info_fails() {
         .unwrap_err()
         .to_string()
         .contains(&service_registry_api::error::ContractError::VerifierNotFound.to_string()));
+}
+
+#[test]
+fn coordinator_one_click_register_deployment_with_router_succeeds() {
+    let test_utils::TestCase {
+        mut protocol,
+        chain1,
+        ..
+    } = test_utils::setup_test_case();
+
+    let chain_name = String::from("testchain");
+    let deployment_name = nonempty_str!("testchain-1");
+
+    let res = deploy_chains(
+        &mut protocol,
+        chain_name.as_str(),
+        &chain1,
+        deployment_name.clone(),
+        Binary::new(vec![1]),
+        false,
+    );
+    assert!(res.is_ok());
+
+    let contracts = gather_contracts(&protocol, res.unwrap());
+
+    assert!(protocol
+        .coordinator
+        .execute(
+            &mut protocol.app,
+            protocol.governance_address.clone(),
+            &coordinator::msg::ExecuteMsg::RegisterDeployment { deployment_name },
+        )
+        .is_ok());
+
+    let res = protocol.router.query::<router_api::ChainEndpoint>(
+        &protocol.app,
+        &router_api::msg::QueryMsg::ChainInfo(
+            router_api::ChainName::try_from(chain_name.clone()).unwrap(),
+        ),
+    );
+
+    assert!(res.is_ok());
+    let res = res.unwrap();
+
+    assert_eq!(res.gateway.address, contracts.gateway.contract_addr);
+    assert_eq!(res.name, chain_name);
 }

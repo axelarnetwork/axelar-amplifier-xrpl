@@ -19,14 +19,14 @@ fn chain_can_be_freezed_unfreezed() {
     let msgs = vec![Message {
         cc_id: CrossChainId::new(
             chain1.chain_name.clone(),
-            "0x88d7956fd7b6fcec846548d83bd25727f2585b4be3add21438ae9fbb34625924-3",
+            "0x88d7956fd7b6fcec846548d83bd25727f2585b4be3add21438ae9fbb34625924",
         )
         .unwrap(),
-        source_address: "0xBf12773B490e1Deb57039061AAcFA2A87DEaC9b9"
+        source_address: "-1:ed12ea588acc65e7ea1fe58b7a64a5ed12ea588acc65e7ea1fe58b7a643719bc"
             .to_string()
             .try_into()
             .unwrap(),
-        destination_address: "0xce16F69375520ab01377ce7B88f5BA8C48F8D666"
+        destination_address: "0:831a8a608c7561d1740198b4b78beb3028ed12ea588acc65e7ea1fe58b7a64a5"
             .to_string()
             .try_into()
             .unwrap(),

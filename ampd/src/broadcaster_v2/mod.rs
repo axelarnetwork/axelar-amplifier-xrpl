@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::ops::Mul;
 
 use axelar_wasm_std::nonempty;
@@ -11,7 +12,7 @@ use report::{LoggableError, ResultCompatExt};
 use thiserror::Error;
 use tokio::sync::oneshot;
 use tokio_stream::StreamExt;
-use tracing::{error, info};
+use tracing::{error, info, instrument};
 use typed_builder::TypedBuilder;
 use valuable::Valuable;
 
@@ -70,12 +71,12 @@ pub enum Error {
 /// * `T` - A Cosmos client that can communicate with the blockchain
 /// * `Q` - A Stream that yields batches of messages to be broadcast
 /// * `S` - A cryptographic signer that can sign transaction payloads
-#[derive(TypedBuilder)]
+#[derive(Debug, TypedBuilder)]
 pub struct BroadcasterTask<T, Q, S>
 where
     T: cosmos::CosmosClient,
-    Q: futures::Stream<Item = nonempty::Vec<msg_queue::QueueMsg>> + Unpin,
-    S: tofnd::grpc::Multisig,
+    Q: futures::Stream<Item = nonempty::Vec<msg_queue::QueueMsg>> + Unpin + Debug,
+    S: tofnd::Multisig,
 {
     broadcaster: broadcaster::Broadcaster<T>,
     msg_queue: Q,
@@ -87,9 +88,9 @@ where
 
 impl<T, Q, S> BroadcasterTask<T, Q, S>
 where
-    T: cosmos::CosmosClient,
-    Q: futures::Stream<Item = nonempty::Vec<msg_queue::QueueMsg>> + Unpin,
-    S: tofnd::grpc::Multisig,
+    T: cosmos::CosmosClient + Debug,
+    Q: futures::Stream<Item = nonempty::Vec<msg_queue::QueueMsg>> + Unpin + Debug,
+    S: tofnd::Multisig + Debug,
 {
     /// Runs the broadcaster task until the message queue is exhausted
     ///
@@ -108,6 +109,7 @@ where
     ///
     /// A Result indicating whether the task completed successfully.
     /// Note that individual transaction failures don't cause the task to return an error.
+    #[instrument]
     pub async fn run(mut self) -> Result<()> {
         while let Some(msgs) = self.msg_queue.next().await {
             let tx_hash = self
@@ -174,7 +176,7 @@ where
 
                 self.signer.sign(
                     &self.key_id,
-                    sign_digest.into(),
+                    sign_digest,
                     pub_key.into(),
                     tofnd::Algorithm::Ecdsa,
                 )
@@ -183,6 +185,7 @@ where
     }
 }
 
+#[instrument]
 fn handle_tx_res(tx_hash: Result<String>, msgs: nonempty::Vec<msg_queue::QueueMsg>) {
     Vec::from(msgs)
         .into_iter()
@@ -215,8 +218,7 @@ mod tests {
     use crate::broadcaster::dec_coin::DecCoin;
     use crate::broadcaster_v2::msg_queue::QueueMsg;
     use crate::broadcaster_v2::{broadcaster, BroadcasterTask, Error};
-    use crate::tofnd::error::Error as TofndError;
-    use crate::tofnd::grpc::MockMultisig;
+    use crate::tofnd::{self, MockMultisig};
     use crate::types::{random_cosmos_public_key, TMAddress};
     use crate::{cosmos, PREFIX};
 
@@ -441,7 +443,7 @@ mod tests {
         mock_signer
             .expect_sign()
             .once()
-            .returning(|_, _, _, _| Err(report!(TofndError::KeygenFailed)));
+            .returning(|_, _, _, _| Err(report!(tofnd::Error::InvalidKeygenResponse)));
 
         let mut seq = Sequence::new();
         let mut mock_client = cosmos::MockCosmosClient::new();
