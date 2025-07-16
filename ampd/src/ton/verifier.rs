@@ -239,7 +239,7 @@ mod tests {
     }
 
     #[test]
-    fn should_reject_incorrect_call_contract_invalid_data() {
+    fn should_reject_incorrect_call_contract_faked_data() {
         let log = TonLog {
             opcode: OP_CALL_CONTRACT,
             cell: Arc::new(Cell::from_boc_b64(TEST_EXAMPLE_TX_LOG_CALL_CONTRACT).unwrap()),
@@ -254,10 +254,35 @@ mod tests {
         let message_id = HexTxHash::new(example_tx_hash);
 
         let mut bad_message = parse_call_contract_log(message_id, &expected_message_cell).unwrap();
-        bad_message.destination_address = String::from("Bad String");
+        bad_message.destination_address = String::from("Bad String"); // this is now a faked message
         print!("Bad message is {:?}", bad_message);
 
         let result = verify_call_contract(log, &bad_message);
+        assert!(!result);
+    }
+
+    #[test]
+    fn should_reject_incorrect_call_contract_unparsable_data() {
+        let cell = Cell::from_boc_b64(TEST_EXAMPLE_TX_LOG_CALL_CONTRACT).unwrap();
+        let mut correct_cell = cell.parser();
+        let partial_cell = correct_cell.next_reference().unwrap();
+        let log = TonLog {
+            opcode: OP_CALL_CONTRACT,
+            cell: partial_cell,
+        };
+
+        let expected_message_cell =
+            Arc::new(Cell::from_boc_b64(TEST_EXAMPLE_TX_LOG_CALL_CONTRACT).unwrap());
+        print!("Expected message cell is {:?}", expected_message_cell);
+
+        let example_tx_hash = STANDARD.decode(TEST_EXAMPLE_TX_HASH_CALL_CONTRACT).unwrap();
+        let example_tx_hash: [u8; 32] = example_tx_hash.try_into().unwrap();
+        let message_id = HexTxHash::new(example_tx_hash);
+
+        let expected_message = parse_call_contract_log(message_id, &expected_message_cell).unwrap();
+        print!("Expected message is {:?}", expected_message);
+
+        let result = verify_call_contract(log, &expected_message);
         assert!(!result);
     }
 
