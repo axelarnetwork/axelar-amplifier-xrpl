@@ -291,13 +291,15 @@ mod tests {
             poll_started_event(participants(5, None), 100),
             &TMAddress::random(PREFIX),
         );
+
+        assert!(matches!(event, Event::Abci { .. }));
         match event {
             Event::Abci {
                 ref mut event_type, ..
             } => {
                 *event_type = "incorrect".into();
             }
-            _ => panic!("incorrect event type"),
+            _ => unreachable!("Variant already checked"),
         }
         let event: Result<PollStartedEvent, events::Error> = (&event).try_into();
 
@@ -311,13 +313,15 @@ mod tests {
             poll_started_event(participants(5, None), 100),
             &TMAddress::random(PREFIX),
         );
+
+        assert!(matches!(event, Event::Abci { .. }));
         match event {
             Event::Abci {
                 ref mut attributes, ..
             } => {
                 attributes.insert("source_gateway_address".into(), "invalid".into());
             }
-            _ => panic!("incorrect event type"),
+            _ => unreachable!("Variant already checked"),
         }
 
         let event: Result<PollStartedEvent, events::Error> = (&event).try_into();
@@ -481,6 +485,7 @@ mod tests {
     struct ValidResponseTonRpc;
     #[async_trait::async_trait]
     impl TonClient for ValidResponseTonRpc {
+        #[inline(never)]
         async fn get_log(
             &self,
             _contract_address: &TonAddress,
@@ -520,6 +525,8 @@ mod tests {
                 // For the third TxEventConfirmation, there is no matching call contract log.
                 // The vote for the third message should thus be NotFound
             ];
+
+            assert_ne!(msgs.get(0), msgs.get(1));
 
             let queried_msg = msgs
                 .iter()

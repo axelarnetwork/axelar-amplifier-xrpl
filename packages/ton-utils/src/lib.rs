@@ -412,7 +412,7 @@ pub fn cell_parse_call_contract_log(
 /// - `payload`: A `Vec<u8>` representing the raw payload to be included in the log cell.
 pub fn build_call_contract_log_cell(msg: &Message, payload: Vec<u8>) -> Result<Cell, TonCellError> {
     let mut builder = CellBuilder::new();
-    builder.store_reference(&get_arced_cell(&msg.destination_chain.to_string())?)?;
+    builder.store_reference(&get_arced_cell(&msg.destination_chain.as_ref())?)?;
     builder.store_reference(&get_arced_cell(&msg.destination_address.to_string())?)?;
     builder.store_reference(&buffer_to_cell(payload)?.to_arc())?;
     builder.store_address(
@@ -421,7 +421,7 @@ pub fn build_call_contract_log_cell(msg: &Message, payload: Vec<u8>) -> Result<C
     )?;
     builder.store_bits(256, &msg.payload_hash)?;
 
-    Ok(builder.build()?)
+    builder.build()
 }
 
 /// Constructs a proof cell from a given verifier set and corresponding signatures, to be sent to the TON gateway.
