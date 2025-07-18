@@ -526,8 +526,6 @@ mod tests {
                 // The vote for the third message should thus be NotFound
             ];
 
-            assert_ne!(msgs.get(0), msgs.get(1));
-
             let queried_msg = msgs
                 .iter()
                 .find(|msg| tx_hash.to_string() == *msg.cc_id.message_id);

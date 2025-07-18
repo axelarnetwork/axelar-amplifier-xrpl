@@ -338,8 +338,12 @@ pub fn cell_parse_rotate_signers_log(cell: &Arc<Cell>) -> Result<WeightedSigners
 
     let derived_weighted_signers = WeightedSigners {
         dict,
-        threshold: threshold.to_u128().unwrap(),
-        nonce: nonce.to_u128().unwrap(),
+        threshold: threshold
+            .to_u128()
+            .ok_or(TonCellError::InternalError("threshold too big".to_string()))?,
+        nonce: nonce
+            .to_u128()
+            .ok_or(TonCellError::InternalError("nonce too big".to_string()))?,
     };
 
     Ok(derived_weighted_signers)
@@ -412,7 +416,7 @@ pub fn cell_parse_call_contract_log(
 /// - `payload`: A `Vec<u8>` representing the raw payload to be included in the log cell.
 pub fn build_call_contract_log_cell(msg: &Message, payload: Vec<u8>) -> Result<Cell, TonCellError> {
     let mut builder = CellBuilder::new();
-    builder.store_reference(&get_arced_cell(&msg.destination_chain.as_ref())?)?;
+    builder.store_reference(&get_arced_cell(msg.destination_chain.as_ref())?)?;
     builder.store_reference(&get_arced_cell(&msg.destination_address.to_string())?)?;
     builder.store_reference(&buffer_to_cell(payload)?.to_arc())?;
     builder.store_address(
