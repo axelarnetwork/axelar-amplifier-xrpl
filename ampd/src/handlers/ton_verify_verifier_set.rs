@@ -252,7 +252,6 @@ mod tests {
         }
     }
 
-    // imported
     #[test]
     fn should_not_deserialize_incorrect_event() {
         // incorrect event type
@@ -307,7 +306,7 @@ mod tests {
             poll_started_event(participants(5, None), 100, 1),
             &TMAddress::random(PREFIX),
         );
-        println!("{:?}", event);
+
         let event: PollStartedEvent = event.try_into().unwrap();
 
         goldie::assert_debug!(event);
@@ -477,7 +476,6 @@ mod tests {
     struct ValidResponseTonRpc;
     #[async_trait::async_trait]
     impl TonClient for ValidResponseTonRpc {
-        #[inline(never)]
         async fn get_log(
             &self,
             _contract_address: &TonAddress,
@@ -492,19 +490,13 @@ mod tests {
             let msgs = vec![
                 // This correct message matches the first TxEventConfirmation in the simulated event
                 // The vote for the first message should thus be SucceededOnChain
-                //#[allow(deprecated)] // TODO: The below event uses the deprecated tx_id and event_index fields. Remove this attribute when those fields are removed
                 VerifierSetConfirmation {
-                    //tx_id: msg_id1.tx_hash_as_hex_no_prefix(),
-                    //event_index: 0u32,
                     message_id: msg_id1.to_string().parse().unwrap(),
                     verifier_set: build_ton_verifier_set(),
                 },
                 // This message has the same cc_id as the second TxEventConfirmation, but differs
                 // in the destination address. The vote for the second message should thus be FailedOnChain
-                //#[allow(deprecated)] // TODO: The below event uses the deprecated tx_id and event_index fields. Remove this attribute when those fields are removed
                 VerifierSetConfirmation {
-                    //tx_id: msg_id2.tx_hash_as_hex_no_prefix(),
-                    //event_index: 0u32,
                     message_id: msg_id2.to_string().parse().unwrap(),
                     verifier_set: incorrect_verifier_set,
                 },
