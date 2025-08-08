@@ -32,6 +32,12 @@ const XRPL_CURRENCY_TO_REMOTE_TOKEN_ID: Map<&XRPLCurrency, TokenId> =
 const XRPL_TOKEN_TO_LOCAL_TOKEN_ID: Map<&XRPLToken, TokenId> =
     Map::new("xrpl_token_to_local_token_id");
 const TOKEN_ID_TO_XRPL_TOKEN: Map<&TokenId, XRPLToken> = Map::new("token_id_to_xrpl_token");
+
+#[allow(dead_code)]
+#[deprecated(
+    since = "1.3.2",
+    note = "queried via interchain token service contract"
+)]
 const TOKEN_INSTACE_DECIMALS: Map<&(ChainNameRaw, TokenId), u8> =
     Map::new("token_instance_decimals");
 
@@ -99,37 +105,6 @@ pub fn count_gas(
     increment_gas(storage, token_id, gas)?;
     mark_gas_counted(storage, tx_id)?;
     Ok(())
-}
-
-pub fn may_load_token_instance_decimals(
-    storage: &dyn Storage,
-    chain_name: ChainNameRaw,
-    token_id: TokenId,
-) -> Result<Option<u8>, Error> {
-    TOKEN_INSTACE_DECIMALS
-        .may_load(storage, &(chain_name.clone(), token_id))
-        .change_context(Error::Storage)
-}
-
-pub fn load_token_instance_decimals(
-    storage: &dyn Storage,
-    chain_name: ChainNameRaw,
-    token_id: TokenId,
-) -> Result<u8, Error> {
-    may_load_token_instance_decimals(storage, chain_name.clone(), token_id)
-        .change_context(Error::Storage)?
-        .ok_or_else(|| report!(Error::TokenInstanceNotFound(chain_name, token_id)))
-}
-
-pub fn save_token_instance_decimals(
-    storage: &mut dyn Storage,
-    chain_name: ChainNameRaw,
-    token_id: TokenId,
-    decimals: u8,
-) -> Result<(), Error> {
-    TOKEN_INSTACE_DECIMALS
-        .save(storage, &(chain_name, token_id), &decimals)
-        .change_context(Error::Storage)
 }
 
 pub fn load_token_id(

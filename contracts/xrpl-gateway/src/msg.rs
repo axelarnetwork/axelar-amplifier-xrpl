@@ -77,14 +77,6 @@ pub enum ExecuteMsg {
         xrpl_currency: XRPLCurrency,
     },
 
-    /// Register a remote token that is deployed on another chain.
-    #[permission(Elevated)]
-    RegisterTokenInstance {
-        token_id: TokenId,
-        chain: ChainNameRaw,
-        decimals: u8,
-    },
-
     /// Deploy a token manager on some destination chain.
     #[permission(Elevated)]
     LinkToken {

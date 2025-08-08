@@ -6,8 +6,10 @@ use axelar_wasm_std::msg_id::HexTxHash;
 use axelar_wasm_std::{
     address, killswitch, nonempty, permission_control, FnExt, VerificationStatus,
 };
-use cosmwasm_std::{Addr, CosmosMsg, DepsMut, Event, HexBinary, Response, Storage, Uint256};
-use error_stack::{bail, ensure, report, Result, ResultExt};
+use cosmwasm_std::{
+    Addr, CosmosMsg, DepsMut, Event, HexBinary, QuerierWrapper, Response, Storage, Uint256,
+};
+use error_stack::{ensure, report, Result, ResultExt};
 use interchain_token_service::{self, TokenId};
 use itertools::Itertools;
 use router_api::client::Router;
@@ -19,10 +21,9 @@ use xrpl_types::msg::{
 };
 use xrpl_types::types::{
     scale_to_decimals, XRPLAccountId, XRPLCurrency, XRPLPaymentAmount, XRPLToken, XRPLTokenOrXrp,
-    XRPL_ISSUED_TOKEN_DECIMALS,
 };
 
-use crate::contract::Error;
+use crate::contract::{query, Error};
 use crate::events::XRPLGatewayEvent;
 use crate::msg::{CallContract, InterchainTransfer, LinkToken, MessageWithPayload, TokenMetadata};
 use crate::state::{self, Config};
@@ -64,6 +65,7 @@ fn verify(
 
 pub fn route_incoming_messages(
     storage: &mut dyn Storage,
+    querier: QuerierWrapper,
     config: &Config,
     verifier: &xrpl_voting_verifier::Client,
     msgs_with_payload: Vec<WithPayload<XRPLMessage>>,
@@ -89,6 +91,7 @@ pub fn route_incoming_messages(
                         event,
                     ) = translate_to_interchain_transfer(
                         storage,
+                        querier,
                         config,
                         &interchain_transfer_message,
                         msg.payload.clone(),
@@ -222,6 +225,7 @@ pub fn update_admin(deps: DepsMut, new_admin_address: String) -> Result<Response
 
 pub fn translate_to_interchain_transfer(
     storage: &dyn Storage,
+    querier: QuerierWrapper,
     config: &Config,
     interchain_transfer_message: &XRPLInterchainTransferMessage,
     payload: Option<nonempty::HexBinary>,
@@ -277,12 +281,17 @@ pub fn translate_to_interchain_transfer(
     let amount = match transfer_amount.clone() {
         XRPLPaymentAmount::Drops(drops) => Uint256::from(drops),
         XRPLPaymentAmount::Issued(_token, token_amount) => {
-            let destination_decimals =
-                state::load_token_instance_decimals(storage, destination_chain.clone(), token_id)
-                    .change_context(Error::TokenNotRegisteredForChain {
-                    token_id: token_id.to_owned(),
-                    chain_name: destination_chain.to_owned(),
-                })?;
+            let destination_decimals = query::token_instance(
+                querier,
+                config.its_hub.clone(),
+                destination_chain.clone(),
+                token_id,
+            )?
+            .decimals;
+
+            if destination_decimals > MAX_TOKEN_DECIMALS {
+                return Err(report!(Error::InvalidDecimals(destination_decimals)));
+            }
 
             scale_to_decimals(token_amount, destination_decimals).change_context(
                 Error::InvalidTransferAmount {
@@ -592,51 +601,6 @@ fn construct_its_hub_message(
     })
 }
 
-pub fn register_token_instance(
-    storage: &mut dyn Storage,
-    config: &Config,
-    token_id: TokenId,
-    chain: ChainNameRaw,
-    decimals: u8,
-) -> Result<Response, Error> {
-    if decimals > MAX_TOKEN_DECIMALS {
-        bail!(Error::InvalidDecimals(decimals));
-    }
-
-    if chain == config.chain_name {
-        bail!(Error::ForbiddenChain(chain));
-    }
-
-    match state::may_load_token_instance_decimals(storage, chain.clone(), token_id)
-        .change_context(Error::State)?
-    {
-        Some(expected_decimals) => {
-            ensure!(
-                decimals == expected_decimals,
-                Error::TokenDeployedDecimalsMismatch {
-                    token_id,
-                    expected: expected_decimals,
-                    actual: decimals,
-                }
-            );
-        }
-        None => {
-            state::save_token_instance_decimals(storage, chain.clone(), token_id, decimals)
-                .change_context(Error::State)?;
-
-            return Ok(
-                Response::default().add_event(XRPLGatewayEvent::TokenInstanceRegistered {
-                    token_id,
-                    chain,
-                    decimals,
-                }),
-            );
-        }
-    }
-
-    Ok(Response::default())
-}
-
 fn route_hub_message(
     config: &Config,
     nexus_client: &nexus::Client,
@@ -680,13 +644,6 @@ pub fn link_token(
     } else {
         let token =
             state::load_xrpl_token(storage, &token_id).change_context(Error::InvalidToken)?;
-        register_token_instance(
-            storage,
-            config,
-            token_id,
-            destination_chain.clone(),
-            XRPL_ISSUED_TOKEN_DECIMALS,
-        )?;
         XRPLTokenOrXrp::Issued(token)
     };
 
@@ -748,14 +705,6 @@ pub fn deploy_remote_token(
             token.decimals(),
         ),
     };
-
-    register_token_instance(
-        storage,
-        config,
-        token_id,
-        destination_chain.clone(),
-        destination_decimals,
-    )?;
 
     let TokenMetadata {
         name: token_name,
