@@ -34,7 +34,7 @@ pub fn start_multisig_reply(deps: DepsMut, reply: Reply) -> Result<Response, Con
 
             Ok(Response::new().add_event(Event::ProofUnderConstruction {
                 destination_chain: config.chain_name,
-                msg_ids,
+                message_ids: msg_ids,
                 payload_id,
                 multisig_session_id,
             }))
