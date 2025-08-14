@@ -130,7 +130,8 @@ jobs:
           cd ${{ steps.compile-contracts.outputs.wasm-directory }}
           crate_name="${{ steps.check-release.outputs.crate-name }}"
           crate_version="${{ steps.check-release.outputs.crate-version }}"
-          wasm_file=$(find . -name "${crate_name//-/_}.wasm")
+          strip_ton_prefix=${crate_name#ton-}
+          wasm_file=$(find . -name "${strip_ton_prefix//-/_}.wasm")
           checksum_file=$(find . -name "checksums.txt")
 
           if [ -z "$wasm_file" ]; then
