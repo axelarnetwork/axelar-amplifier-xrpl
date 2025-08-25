@@ -1,21 +1,21 @@
 use axelar_wasm_std::address;
 use cosmwasm_std::{Deps, Order};
-use error_stack::report;
 use itertools::Itertools;
-use report::ResultExt;
 use router_api::ChainName;
 use service_registry_api::error::ContractError;
 use service_registry_api::*;
 
-use crate::msg::{ServiceParamsOverride, VerifierDetails};
-use crate::state::{self, VERIFIERS, VERIFIERS_PER_CHAIN, VERIFIER_WEIGHT};
+use crate::msg::VerifierDetails;
+use crate::state::{SERVICES, VERIFIERS, VERIFIERS_PER_CHAIN, VERIFIER_WEIGHT};
 
 pub fn active_verifiers(
     deps: Deps,
     service_name: String,
     chain_name: ChainName,
-) -> error_stack::Result<Vec<WeightedVerifier>, ContractError> {
-    let service = state::service(deps.storage, &service_name, Some(&chain_name))?;
+) -> Result<Vec<WeightedVerifier>, ContractError> {
+    let service = SERVICES
+        .may_load(deps.storage, &service_name)?
+        .ok_or(ContractError::ServiceNotFound)?;
 
     let verifiers: Vec<_> = VERIFIERS_PER_CHAIN
         .prefix((service_name.clone(), chain_name.clone()))
@@ -37,11 +37,10 @@ pub fn active_verifiers(
             verifier_info: verifier,
             weight: VERIFIER_WEIGHT, // all verifiers have an identical const weight for now
         })
-        .try_collect()
-        .into_report()?;
+        .try_collect()?;
 
     if verifiers.len() < service.min_num_verifiers.into() {
-        Err(report!(ContractError::NotEnoughVerifiers))
+        Err(ContractError::NotEnoughVerifiers)
     } else {
         Ok(verifiers)
     }
@@ -73,19 +72,8 @@ pub fn verifier(
     })
 }
 
-pub fn service(
-    deps: Deps,
-    service_name: String,
-    chain_name: Option<ChainName>,
-) -> error_stack::Result<Service, ContractError> {
-    state::service(deps.storage, &service_name, chain_name.as_ref())
-}
-
-pub fn service_params_override(
-    deps: Deps,
-    service_name: String,
-    chain_name: ChainName,
-) -> error_stack::Result<Option<ServiceParamsOverride>, ContractError> {
-    state::may_load_service_params_override(deps.storage, &service_name, &chain_name)
-        .map(|o| o.map(Into::into))
+pub fn service(deps: Deps, service_name: String) -> Result<Service, ContractError> {
+    SERVICES
+        .may_load(deps.storage, &service_name)?
+        .ok_or(ContractError::ServiceNotFound)
 }

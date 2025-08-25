@@ -28,19 +28,6 @@ pub enum ExecuteMsg {
         service_name: String,
         updated_service_params: UpdatedServiceParams,
     },
-    /// Overrides the service params for a service and chain combination.
-    #[permission(Governance)]
-    OverrideServiceParams {
-        service_name: String,
-        chain_name: ChainName,
-        service_params_override: ServiceParamsOverride,
-    },
-    // Removes the service params override.
-    #[permission(Governance)]
-    RemoveServiceParamsOverride {
-        service_name: String,
-        chain_name: ChainName,
-    },
     /// Authorizes verifiers to join a service. Can only be called by governance account. Verifiers must still bond sufficient stake to participate.
     #[permission(Governance)]
     AuthorizeVerifiers {
@@ -94,16 +81,7 @@ pub enum QueryMsg {
     },
 
     #[returns(Service)]
-    Service {
-        service_name: String,
-        chain_name: Option<ChainName>,
-    },
-
-    #[returns(Option<ServiceParamsOverride>)]
-    ServiceParamsOverride {
-        service_name: String,
-        chain_name: ChainName,
-    },
+    Service { service_name: String },
 
     #[returns(VerifierDetails)]
     Verifier {
@@ -127,12 +105,4 @@ pub struct UpdatedServiceParams {
     pub max_num_verifiers: Option<Option<u16>>,
     pub min_verifier_bond: Option<nonempty::Uint128>,
     pub unbonding_period_days: Option<u16>,
-}
-
-// Represents any overrideable fields of the Service struct
-// Any non-None field overrides the value currently stored in the Service object
-#[cw_serde]
-pub struct ServiceParamsOverride {
-    pub min_num_verifiers: Option<u16>,
-    pub max_num_verifiers: Option<Option<u16>>,
 }
