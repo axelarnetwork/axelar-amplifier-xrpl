@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use axelar_wasm_std::hash::Hash;
 use multisig::key::{PublicKey, Signature};
-use multisig::msg::SignerWithSig;
+use multisig::msg::{Signer, SignerWithSig};
 use multisig::verifier_set::VerifierSet;
 use num_bigint::BigUint;
 use num_traits::ToPrimitive;
@@ -651,19 +651,17 @@ fn compute_verifier_set_hash(verifier_set: &VerifierSet) -> Result<Hash, TonCell
 
     let mut current_hash = Keccak256::digest(&data);
 
-    // Sort the keys lexicographically
-    let mut sorted_keys: Vec<&String> = verifier_set.signers.keys().collect();
-    sorted_keys.sort();
+    // Sort the signers by public key bytes
+    let mut sorted_signers: Vec<(&String, &Signer)> = verifier_set.signers.iter().collect();
+    sorted_signers.sort_by(|(_, signer1), (_, signer2)| signer1.pub_key.cmp(&signer2.pub_key));
 
-    for (i, key) in sorted_keys.iter().enumerate() {
-        let signer = verifier_set.signers.get(*key).unwrap(); // assert: key in verifier_set.signers since we iterate over the keys
-
+    for (i, (_, signer)) in sorted_signers.iter().enumerate() {
         let mut hasher = Keccak256::new();
         hasher.update(
             u16::try_from(i)
                 .map_err(|_| TonCellError::InternalError("Too many signers".to_string()))?
                 .to_be_bytes(),
-        ); // assert: less than 2^16 = 65536 signers
+        );
         hasher.update(&signer.pub_key);
         hasher.update(signer.weight.to_be_bytes());
         hasher.update(current_hash);
@@ -734,7 +732,7 @@ mod tests {
     use crate::{
         buffer_to_cell, build_call_contract_log_cell, build_signer_rotation_body,
         cell_parse_call_contract_log, cell_to_boc_hex, compute_approve_messages_hash,
-        message_to_cell, CellTo, WeightedSigners,
+        compute_verifier_set_hash, message_to_cell, CellTo, WeightedSigners,
     };
 
     const LOREM_STR: &str = "Lorem ipsum dolor sit amet ullamco ipsum. Est nulla veniam fugiat ut consectetur mollit ipsum duis nostrud ullamco cupidatat ad Lorem eu incididunt adipisicing laboris nisi. Ad mollit exercitation, culpa aute esse incididunt officia anim sint adipisicing labore anim exercitation aliquip irure id nisi tempor. Ipsum anim dolore sit incididunt ipsum nisi.  Id quis veniam occaecat est ad. Aliquip adipisicing culpa sit esse eiusmod laboris voluptate, sit. Esse amet esse occaecat laboris minim culpa officia ullamco et reprehenderit proident occaecat ullamco ipsum sunt ipsum est quis enim esse veniam est ut. Deserunt fugiat aliqua proident officia enim laboris Lorem qui dolor irure qui.  Excepteur elit est adipisicing ex in commodo eiusmod elit ea minim velit, et id aute voluptate velit fugiat culpa. Ipsum fugiat non in adipisicing eu voluptate fugiat occaecat ex enim consequat consectetur ex in. Magna reprehenderit id nisi sunt pariatur minim officia elit a";
@@ -852,6 +850,25 @@ mod tests {
             build_signer_rotation_body(&new_ton_set, &verifier_set, signers_with_sigs).unwrap();
 
         assert_eq!(cell_to_boc_hex(encoded_signer_rotation).unwrap(), "b5ee9c72410208010001c10002080000001401020040ab98abb510250ae97f3834f06829b35e08d6711dd57753b9c16307aadb4e5d5c0161800000000000000000000000000000018000000000000000000000000000000000000000000000000000000000000000c0030202ce0405020120060700e1479b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad049664000000000000000000000000000000019b7265c9660f8dd37e99e6c8e4e5fc020a1f0ddb9d55c3f352e826990af144485903cb41b47d6091f7c753ff5de667414be03bfe6a1d3f06513d949005a3500c800e100e841effcf3842f875c374639d2f02659f9358c26e94357c777219904954c6e0000000000000000000000000000000058f50f79ad5e03a8a6126a0ae6d85b0e9f2314ccb9686cd102309d17aafc1f8b1f54e44d38d2038ecf86b1a27e7ffc1411ee6ec7b3c4821ccb3d4e8e6b83f9c06000e110f37008f48b57e7841f4681a4d15f4d747443adf4871c8464bd5bd779019974c000000000000000000000000000000079865c87816d54b8c243712921892b693fe469293ef65388d1fc7a5c5b65727c790f0a70584e0e3bdefacb6bb05b00db4250b309d3457a99008317f652be5081608ba483f1");
+    }
+
+    #[test]
+    fn should_sort_based_on_pubkey_bytes() {
+        // public keys in reverse order
+        let pub_keys = vec![
+            "b0005189ac84d3a1d675847700777891dde751fa107d64837bf6337d32df6790",
+            "078417d4f8a400eb63141136d4d44c17c21ab83c4deabd2119238e6310db92c4",
+        ];
+
+        let mut verifier_set = ton_verifier_set_from_pub_keys(&pub_keys);
+        verifier_set.threshold = Uint128::from(2u128);
+        verifier_set.created_at = 8664880;
+
+        let signers_hash = compute_verifier_set_hash(&verifier_set).unwrap();
+        assert_eq!(
+            "4b163171177cefe9be70322b61eb0bf141920bb8f6faea9c79271a5c331aacd5",
+            hex_encode(signers_hash.to_vec().as_slice())
+        );
     }
 
     #[test]
