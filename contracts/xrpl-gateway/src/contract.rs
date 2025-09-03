@@ -33,22 +33,14 @@ const XRP_ISSUER: &str = "rrrrrrrrrrrrrrrrrrrrrhoLvTp";
 
 #[derive(thiserror::Error, Debug, IntoContractError)]
 pub enum Error {
-    #[error("chain {0} already registered")]
-    ChainAlreadyRegistered(ChainNameRaw),
-    #[error("chain {0} not registered")]
-    ChainNotRegistered(ChainNameRaw),
     #[error("batch contains duplicate message ids")]
     DuplicateMessageIds,
     #[error("failed to execute gateway command")]
     Execute,
     #[error("contract execution disabled")]
     ExecutionDisabled,
-    #[error("unable to generate event index")]
-    EventIndex,
     #[error("invalid address")]
     InvalidAddress,
-    #[error("invalid amount")]
-    InvalidAmount,
     #[error("invalid cross-chain id")]
     InvalidCrossChainId,
     #[error("invalid decimals {0}")]
@@ -57,8 +49,6 @@ pub enum Error {
     InvalidDestinationAddress,
     #[error("invalid destination chain {0}")]
     InvalidDestinationChain(ChainNameRaw),
-    #[error("invalid drops {0}")]
-    InvalidDrops(u64),
     #[error("invalid source address")]
     InvalidSourceAddress,
     #[error("invalid token")]
@@ -103,8 +93,6 @@ pub enum Error {
         expected: HexBinary,
         actual: HexBinary,
     },
-    #[error("payload wasn't given")]
-    PayloadMissing,
     #[error("remote token {token_id} deployed XRPL currency mismatch: expected {expected}, actual {actual}")]
     RemoteTokenDeployedCurrencyMismatch {
         token_id: TokenId,
