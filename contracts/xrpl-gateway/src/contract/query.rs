@@ -1,7 +1,7 @@
 use axelar_wasm_std::error::extend_err;
 use axelar_wasm_std::nonempty;
-use cosmwasm_std::{to_json_binary, Binary, Storage};
-use error_stack::Result;
+use cosmwasm_std::{to_json_binary, Addr, Binary, QuerierWrapper, Storage};
+use error_stack::{Result, ResultExt};
 use interchain_token_service::TokenId;
 use router_api::{ChainNameRaw, CrossChainId, Message};
 use xrpl_types::msg::{XRPLCallContractMessage, XRPLInterchainTransferMessage};
@@ -50,23 +50,47 @@ pub fn linked_token_id(
     Ok(to_json_binary(&linked_token_id).map_err(state::Error::from)?)
 }
 
-pub fn token_instance_decimals(
-    storage: &dyn Storage,
+pub fn token_instance(
+    querier: QuerierWrapper,
+    its_hub: Addr,
     chain_name: ChainNameRaw,
     token_id: TokenId,
-) -> Result<Binary, state::Error> {
-    let decimals = state::load_token_instance_decimals(storage, chain_name, token_id)?;
-    Ok(to_json_binary(&decimals).map_err(state::Error::from)?)
+) -> Result<interchain_token_service::TokenInstance, Error> {
+    let query_msg = interchain_token_service::msg::QueryMsg::TokenInstance {
+        chain: chain_name.clone(),
+        token_id,
+    };
+
+    let token_instance: interchain_token_service::TokenInstance = querier
+        .query_wasm_smart(its_hub, &query_msg)
+        .change_context(Error::TokenInstanceDecimals {
+            token_id,
+            chain_name,
+        })?;
+
+    Ok(token_instance)
+}
+
+pub fn token_instance_decimals(
+    querier: QuerierWrapper,
+    its_hub: Addr,
+    chain_name: ChainNameRaw,
+    token_id: TokenId,
+) -> Result<Binary, Error> {
+    let decimals = token_instance(querier, its_hub, chain_name, token_id)?.decimals;
+
+    Ok(to_json_binary(&decimals).map_err(Error::from)?)
 }
 
 pub fn translate_to_interchain_transfer(
     storage: &dyn Storage,
+    querier: QuerierWrapper,
     config: &Config,
     message: &XRPLInterchainTransferMessage,
     payload: Option<nonempty::HexBinary>,
 ) -> Result<Binary, Error> {
     let (interchain_transfer, _) =
-        execute::translate_to_interchain_transfer(storage, config, message, payload)?;
+        execute::translate_to_interchain_transfer(storage, querier, config, message, payload)?;
     Ok(to_json_binary(&interchain_transfer).map_err(Error::from)?)
 }
 

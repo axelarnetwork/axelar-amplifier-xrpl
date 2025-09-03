@@ -45,8 +45,6 @@ pub enum Error {
     ExecutionDisabled,
     #[error("unable to generate event index")]
     EventIndex,
-    #[error("forbidden chain {0}")]
-    ForbiddenChain(ChainNameRaw),
     #[error("invalid address")]
     InvalidAddress,
     #[error("invalid amount")]
@@ -131,12 +129,6 @@ pub enum Error {
     State,
     #[error(transparent)]
     Std(#[from] StdError),
-    #[error("token {token_id} deployed decimals mismatch: expected {expected}, actual {actual}")]
-    TokenDeployedDecimalsMismatch {
-        token_id: TokenId,
-        expected: u8,
-        actual: u8,
-    },
     #[error("failed to query token instance decimals for token {token_id} on chain {chain_name}")]
     TokenInstanceDecimals {
         chain_name: ChainNameRaw,
@@ -144,11 +136,6 @@ pub enum Error {
     },
     #[error("token {0} not local")]
     TokenNotLocal(XRPLTokenOrXrp),
-    #[error("token {token_id} not registered for chain {chain_name}")]
-    TokenNotRegisteredForChain {
-        token_id: TokenId,
-        chain_name: ChainNameRaw,
-    },
     #[error("message {0:?} is not a valid incoming message")]
     UnsupportedIncomingMessage(XRPLMessage),
     #[error("failed to query xrpl token {0}")]
@@ -251,11 +238,6 @@ pub fn execute(
             token_id,
             xrpl_currency,
         ),
-        ExecuteMsg::RegisterTokenInstance {
-            token_id,
-            chain,
-            decimals,
-        } => execute::register_token_instance(deps.storage, &config, token_id, chain, decimals),
         ExecuteMsg::LinkToken {
             token_id,
             destination_chain,
@@ -300,7 +282,7 @@ pub fn execute(
         ),
         ExecuteMsg::RouteIncomingMessages(msgs) => {
             let verifier = client::ContractClient::new(deps.querier, &config.verifier).into();
-            execute::route_incoming_messages(deps.storage, &config, &verifier, msgs)
+            execute::route_incoming_messages(deps.storage, deps.querier, &config, &verifier, msgs)
         }
         ExecuteMsg::ConfirmAddGasMessages(msgs) => {
             let verifier = client::ContractClient::new(deps.querier, &config.verifier).into();
@@ -338,14 +320,28 @@ pub fn query(
         QueryMsg::TokenInstanceDecimals {
             chain_name,
             token_id,
-        } => query::token_instance_decimals(deps.storage, chain_name.clone(), token_id)
+        } => {
+            let config = state::load_config(deps.storage);
+            query::token_instance_decimals(
+                deps.querier,
+                config.its_hub,
+                chain_name.clone(),
+                token_id,
+            )
             .change_context(Error::TokenInstanceDecimals {
                 chain_name,
                 token_id,
-            }),
+            })
+        }
         QueryMsg::InterchainTransfer { message, payload } => {
             let config = state::load_config(deps.storage);
-            query::translate_to_interchain_transfer(deps.storage, &config, &message, payload)
+            query::translate_to_interchain_transfer(
+                deps.storage,
+                deps.querier,
+                &config,
+                &message,
+                payload,
+            )
         }
         QueryMsg::CallContract { message, payload } => {
             let config = state::load_config(deps.storage);
