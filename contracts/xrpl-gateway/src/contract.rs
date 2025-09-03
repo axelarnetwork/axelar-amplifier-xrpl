@@ -45,8 +45,6 @@ pub enum Error {
     ExecutionDisabled,
     #[error("unable to generate event index")]
     EventIndex,
-    #[error("forbidden chain {0}")]
-    ForbiddenChain(ChainNameRaw),
     #[error("invalid address")]
     InvalidAddress,
     #[error("invalid amount")]
@@ -131,12 +129,6 @@ pub enum Error {
     State,
     #[error(transparent)]
     Std(#[from] StdError),
-    #[error("token {token_id} deployed decimals mismatch: expected {expected}, actual {actual}")]
-    TokenDeployedDecimalsMismatch {
-        token_id: TokenId,
-        expected: u8,
-        actual: u8,
-    },
     #[error("failed to query token instance decimals for token {token_id} on chain {chain_name}")]
     TokenInstanceDecimals {
         chain_name: ChainNameRaw,

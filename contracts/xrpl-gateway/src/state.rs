@@ -62,8 +62,6 @@ pub enum Error {
     TokenIdNotFound(XRPLCurrency),
     #[error("token ID for XRPL token {0} not found")]
     TokenIdNotFoundForToken(XRPLToken),
-    #[error("token instance for chain {0} and token {1} not found")]
-    TokenInstanceNotFound(ChainNameRaw, TokenId),
 }
 
 fn increment_gas(
