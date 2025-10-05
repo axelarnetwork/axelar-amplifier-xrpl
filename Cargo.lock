@@ -11337,6 +11337,7 @@ dependencies = [
  "report 1.0.0",
  "ripemd",
  "router-api 1.0.0 (git+https://github.com/commonprefix/axelar-amplifier?branch=fix/non-unique-unsigned-tx-hash)",
+ "semver 1.0.26",
  "serde_json",
  "service-registry",
  "service-registry-api",

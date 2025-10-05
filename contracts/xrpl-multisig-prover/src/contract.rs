@@ -1,18 +1,17 @@
-use axelar_wasm_std::{address, killswitch, permission_control, FnExt};
+use axelar_wasm_std::{address, killswitch, migrate_from_version, permission_control, FnExt};
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
-use cosmwasm_std::{
-    to_json_binary, Binary, Deps, DepsMut, Empty, Env, MessageInfo, Reply, Response,
-};
+use cosmwasm_std::{to_json_binary, Binary, Deps, DepsMut, Env, MessageInfo, Reply, Response};
 use error_stack::ResultExt;
 use multisig::key::PublicKey;
 
 mod execute;
+mod migrations;
 mod query;
 mod reply;
 
 use crate::error::ContractError;
-use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
+use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg};
 use crate::state::{
     Config, AVAILABLE_TICKETS, CONFIG, FEE_RESERVE, LAST_ASSIGNED_TICKET_NUMBER,
     NEXT_SEQUENCE_NUMBER,
@@ -54,6 +53,7 @@ pub fn instantiate(
         xrpl_base_reserve: msg.xrpl_base_reserve,
         xrpl_owner_reserve: msg.xrpl_owner_reserve,
         ticket_count_threshold: msg.ticket_count_threshold,
+        relayer: msg.relayer_address,
     };
     CONFIG.save(deps.storage, &config)?;
 
@@ -84,7 +84,9 @@ pub fn execute(
     let gateway: &xrpl_gateway::Client =
         &client::ContractClient::new(deps.querier, &config.gateway).into();
 
-    match msg.ensure_permissions(deps.storage, &info.sender)? {
+    match msg.ensure_permissions(deps.storage, &info.sender, |_, _| {
+        Ok::<_, error_stack::Report<ContractError>>(config.gateway.clone())
+    })? {
         ExecuteMsg::TrustSet { token_id } => execute::construct_trust_set_proof(
             deps.storage,
             gateway,
@@ -153,6 +155,13 @@ pub fn execute(
         ),
         ExecuteMsg::DisableExecution => execute::disable_execution(deps),
         ExecuteMsg::EnableExecution => execute::enable_execution(deps),
+        ExecuteMsg::ClaimGas { token_id, amount } => execute::claim_gas(
+            deps.storage,
+            env.contract.address,
+            &config,
+            token_id,
+            amount,
+        ),
     }?
     .then(Ok)
 }
@@ -217,14 +226,17 @@ pub fn query(
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
+#[migrate_from_version("1.4")]
 pub fn migrate(
     deps: DepsMut,
     _env: Env,
-    _msg: Empty,
+    msg: MigrateMsg,
 ) -> Result<Response, axelar_wasm_std::error::ContractError> {
     cw2::assert_contract_version(deps.storage, CONTRACT_NAME, BASE_VERSION)?;
 
     killswitch::init(deps.storage, killswitch::State::Disengaged)?;
+
+    migrations::migrate_config(deps.storage, msg)?;
 
     cw2::set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
@@ -259,8 +271,8 @@ mod tests {
     use crate::test::test_data::{self, TestOperator};
     use crate::test::test_utils::{
         mock_querier_handler, ADMIN, CHAIN_NAME, COORDINATOR_ADDRESS, GATEWAY_ADDRESS, GOVERNANCE,
-        MULTISIG_ADDRESS, SERVICE_NAME, SERVICE_REGISTRY_ADDRESS, VOTING_VERIFIER_ADDRESS,
-        XRPL_MULITISIG_ADDRESS,
+        MULTISIG_ADDRESS, RELAYER_ADDRESS, SERVICE_NAME, SERVICE_REGISTRY_ADDRESS,
+        VOTING_VERIFIER_ADDRESS, XRPL_MULITISIG_ADDRESS,
     };
 
     const RELAYER: &str = "relayer";
@@ -300,6 +312,7 @@ mod tests {
                 next_sequence_number: 44218446,
                 last_assigned_ticket_number: 44218195,
                 available_tickets: (44218195..44218200).collect::<Vec<_>>(),
+                relayer_address: RELAYER_ADDRESS.parse().unwrap(),
             },
         )
         .unwrap();
@@ -491,11 +504,36 @@ mod tests {
             )
             .unwrap();
 
-        migrate(deps.as_mut(), mock_env(), Empty {}).unwrap();
+        migrate(
+            deps.as_mut(),
+            mock_env(),
+            MigrateMsg {
+                relayer_address: RELAYER_ADDRESS.parse().unwrap(),
+            },
+        )
+        .unwrap();
 
         let contract_version = cw2::get_contract_version(deps.as_mut().storage).unwrap();
         assert_eq!(contract_version.contract, CONTRACT_NAME);
         assert_eq!(contract_version.version, CONTRACT_VERSION);
+    }
+
+    #[test]
+    fn migrate_sets_relayer_address() {
+        let mut deps = setup_test_case();
+
+        let relayer_address: XRPLAccountId = RELAYER_ADDRESS.parse().unwrap();
+        migrate(
+            deps.as_mut(),
+            mock_env(),
+            MigrateMsg {
+                relayer_address: relayer_address.clone(),
+            },
+        )
+        .unwrap();
+
+        let config = CONFIG.load(deps.as_ref().storage).unwrap();
+        assert_eq!(config.relayer, relayer_address);
     }
 
     #[test]
@@ -521,6 +559,7 @@ mod tests {
         let chain_name: ChainName = "xrpl".parse().unwrap();
         let xrpl_multisig_address: XRPLAccountId =
             "rGAbJZEzU6WaYv5y1LfyN7LBBcQJ3TxsKC".parse().unwrap();
+        let relayer_address: XRPLAccountId = "r9m9uUCAwMLSnRryXYuUB3cGXojpRznaAo".parse().unwrap();
 
         let verifier_set_diff_threshold = 0u32;
         let xrpl_transaction_fee = 10u64;
@@ -557,6 +596,7 @@ mod tests {
             next_sequence_number,
             last_assigned_ticket_number,
             available_tickets,
+            relayer_address: relayer_address.clone(),
         };
 
         let res = instantiate(deps.as_mut(), env, info, msg);
@@ -572,6 +612,7 @@ mod tests {
         assert_eq!(config.service_registry, service_registry_address);
         assert_eq!(config.signing_threshold, signing_threshold);
         assert_eq!(config.service_name, service_name);
+        assert_eq!(config.relayer, relayer_address);
 
         assert_eq!(
             permission_control::sender_role(deps.as_ref().storage, &admin).unwrap(),

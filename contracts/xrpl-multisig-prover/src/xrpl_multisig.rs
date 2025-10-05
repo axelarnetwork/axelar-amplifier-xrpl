@@ -1,3 +1,5 @@
+use std::ops::Sub;
+
 use axelar_wasm_std::msg_id::HexTxHash;
 use axelar_wasm_std::FnExt;
 use cosmwasm_std::Storage;
@@ -14,9 +16,9 @@ use crate::error::ContractError;
 use crate::events::Event;
 use crate::state::{
     Config, TxInfo, AVAILABLE_TICKETS, CONSUMED_TICKET_TO_UNSIGNED_TX_HASH,
-    CROSS_CHAIN_ID_TO_TICKET, CURRENT_VERIFIER_SET, FEE_RESERVE, LAST_ASSIGNED_TICKET_NUMBER,
-    NEXT_SEQUENCE_NUMBER, NEXT_VERIFIER_SET, SEQUENCE_NUMBER_MAX_OBJECT_COUNT, TRUST_LINE,
-    TRUST_LINE_COUNT, UNSIGNED_TX_HASH_TO_TX_INFO,
+    CROSS_CHAIN_ID_TO_TICKET, CURRENT_VERIFIER_SET, FEE_RESERVE, GAS_CLAIM_INFLIGHT,
+    LAST_ASSIGNED_TICKET_NUMBER, NEXT_SEQUENCE_NUMBER, NEXT_VERIFIER_SET,
+    SEQUENCE_NUMBER_MAX_OBJECT_COUNT, TRUST_LINE, TRUST_LINE_COUNT, UNSIGNED_TX_HASH_TO_TX_INFO,
 };
 
 const MAX_TICKET_COUNT: u32 = 250;
@@ -152,23 +154,32 @@ pub fn issue_payment(
     config: &Config,
     destination: XRPLAccountId,
     amount: &XRPLPaymentAmount,
-    cc_id: &CrossChainId,
+    cc_id: Option<&CrossChainId>,
     cross_currency: Option<&XRPLCrossCurrencyOptions>,
 ) -> Result<XRPLUnsignedTxToSign, ContractError> {
-    let ticket_number = assign_ticket_number(storage, cc_id)?;
-    let fee = tx_fee(storage, config, ticket_number, XRPLUnsignedTxType::Payment)?;
+    let sequence = match cc_id {
+        Some(cc_id) => XRPLSequence::Ticket(assign_ticket_number(storage, cc_id)?),
+        None => XRPLSequence::Plain(next_sequence_number(storage)?),
+    };
+
+    let fee = tx_fee(
+        storage,
+        config,
+        (&sequence).into(),
+        XRPLUnsignedTxType::Payment,
+    )?;
 
     let tx = XRPLPaymentTx {
         account: config.xrpl_multisig.clone(),
         fee,
-        sequence: XRPLSequence::Ticket(ticket_number),
+        sequence,
         amount: amount.clone(),
         destination,
         cross_currency: cross_currency.cloned(),
-        cc_id: Some(cc_id.clone()),
+        cc_id: cc_id.cloned(),
     };
 
-    issue_tx(storage, XRPLUnsignedTx::Payment(tx), Some(cc_id))
+    issue_tx(storage, XRPLUnsignedTx::Payment(tx), cc_id)
 }
 
 pub fn issue_ticket_create(
@@ -356,6 +367,38 @@ pub fn confirm_prover_message(
                     message_id: cc_id.message_id,
                     token_id: payment_amount_to_token_id(gateway, amount.clone())?,
                     source_chain: cc_id.source_chain,
+                    destination_address: destination,
+                    amount,
+                };
+
+                (None, Some(event))
+            } else if let XRPLSequence::Plain(_) = tx.sequence {
+                let XRPLPaymentTx {
+                    amount,
+                    destination,
+                    ..
+                } = tx.clone();
+
+                let token_id = payment_amount_to_token_id(gateway, amount.clone())?;
+                if let Some(gas_amount_inflight) =
+                    GAS_CLAIM_INFLIGHT.may_load(storage, &token_id)?
+                {
+                    if gas_amount_inflight == amount {
+                        GAS_CLAIM_INFLIGHT.remove(storage, &token_id);
+                    } else if gas_amount_inflight > amount {
+                        GAS_CLAIM_INFLIGHT.save(
+                            storage,
+                            &token_id,
+                            &gas_amount_inflight.sub(amount.clone())?,
+                        )?;
+                    } else {
+                        return Err(ContractError::GasClaimOverflow);
+                    }
+                }
+
+                let event = Event::GasClaimed {
+                    tx_id: tx_id.tx_hash_as_hex_no_prefix(),
+                    token_id,
                     destination_address: destination,
                     amount,
                 };

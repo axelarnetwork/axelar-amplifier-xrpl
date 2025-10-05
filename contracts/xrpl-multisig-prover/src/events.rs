@@ -48,4 +48,10 @@ pub enum Event {
         count: usize,
         quorum: u32,
     },
+    GasClaimed {
+        tx_id: nonempty::String,
+        token_id: TokenId,
+        destination_address: XRPLAccountId,
+        amount: XRPLPaymentAmount,
+    },
 }

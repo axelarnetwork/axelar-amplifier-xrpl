@@ -1417,6 +1417,7 @@ pub fn setup_xrpl(
 ) -> XRPLChain {
     let xrpl_chain_name = ChainName::from_str("xrpl").unwrap();
     let xrpl_multisig = XRPLAccountId::from_str("rfEf91bLxrTVC76vw1W3Ur8Jk4Lwujskmb").unwrap();
+    let relayer_address = XRPLAccountId::from_str("r9m9uUCAwMLSnRryXYuUB3cGXojpRznaAo").unwrap();
 
     let admin = MockApi::default().addr_make(format!("{}_admin", xrpl_chain_name).as_str());
 
@@ -1446,19 +1447,7 @@ pub fn setup_xrpl(
         voting_verifier.contract_addr.clone(),
         xrpl_chain_name.clone(),
         xrpl_multisig.clone(),
-        // TODO:
-        /*voting_verifier_address: voting_verifier_address.to_string(),
-        signing_threshold: (2, 3).try_into().unwrap(),
-        service_name: protocol.service_name.to_string(),
-        verifier_set_diff_threshold: 1,
-        xrpl_fee: 30,
-        ticket_count_threshold: 1,
-        next_sequence_number: 44218446,
-        last_assigned_ticket_number: 44218195,
-        available_tickets: vec![
-            vec![],
-            (44218195..44218200).collect::<Vec<_>>()
-        ].concat(),*/
+        relayer_address.clone(),
     );
 
     let response = protocol.coordinator.execute(

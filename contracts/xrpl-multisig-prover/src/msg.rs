@@ -7,7 +7,7 @@ use msgs_derive::EnsurePermissions;
 use router_api::{ChainName, CrossChainId};
 use xrpl_types::hex_tx_hash;
 use xrpl_types::msg::{XRPLAddReservesMessage, XRPLProverMessage};
-use xrpl_types::types::{xrpl_account_id_string, XRPLAccountId};
+use xrpl_types::types::{xrpl_account_id_string, XRPLAccountId, XRPLPaymentAmount};
 
 use crate::state::MultisigSession;
 
@@ -65,6 +65,10 @@ pub struct InstantiateMsg {
     pub next_sequence_number: u32,
     /// The ticket number that was last assigned to the XRPL multisig account.
     pub last_assigned_ticket_number: u32,
+    /// Address of the relayer account on XRPL.
+    #[serde(with = "xrpl_account_id_string")]
+    #[schemars(with = "String")]
+    pub relayer_address: XRPLAccountId,
 }
 
 #[cw_serde]
@@ -186,4 +190,18 @@ pub enum ExecuteMsg {
         signer_address: String,
         session_id: Uint64,
     },
+
+    #[permission(Specific(gateway))]
+    ClaimGas {
+        token_id: TokenId,
+        amount: Option<XRPLPaymentAmount>,
+    },
+}
+
+#[cw_serde]
+pub struct MigrateMsg {
+    /// Address of the relayer account on XRPL.
+    #[serde(with = "xrpl_account_id_string")]
+    #[schemars(with = "String")]
+    pub relayer_address: XRPLAccountId,
 }

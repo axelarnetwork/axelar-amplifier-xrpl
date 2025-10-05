@@ -62,6 +62,9 @@ pub enum ContractError {
     #[error("failed to update admin")]
     FailedToUpdateAdmin,
 
+    #[error("failed to confirm gas claim for amount that is higher than inflight amount")]
+    GasClaimOverflow,
+
     #[error("insufficient fee reserve: current fee reserve of {current_reserve} drops cannot cover the required fee reserve of {required_reserve} drops")]
     InsufficientFeeReserve {
         current_reserve: u64,
@@ -127,6 +130,9 @@ pub enum ContractError {
 
     #[error("no available tickets")]
     NoAvailableTickets,
+
+    #[error("no gas to claim")]
+    NoGasToClaim,
 
     #[error("no verifier set stored")]
     NoVerifierSet,

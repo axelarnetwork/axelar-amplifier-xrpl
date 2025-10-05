@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::ops::Add;
 use std::str::FromStr;
 
 use axelar_wasm_std::{
@@ -23,7 +24,9 @@ use super::START_MULTISIG_REPLY_ID;
 use crate::contract::query;
 use crate::error::ContractError;
 use crate::events::Event;
-use crate::state::{self, Config, FEE_RESERVE, FEE_RESERVE_TOP_UP_COUNTED, TRUST_LINE};
+use crate::state::{
+    self, Config, FEE_RESERVE, FEE_RESERVE_TOP_UP_COUNTED, GAS_CLAIM_INFLIGHT, TRUST_LINE,
+};
 use crate::xrpl_serialize::XRPLSerialize;
 use crate::{axelar_verifiers, xrpl_multisig};
 
@@ -319,6 +322,49 @@ fn compute_xrpl_amount(
     Ok(xrpl_amount)
 }
 
+pub fn claim_gas(
+    storage: &mut dyn Storage,
+    self_address: Addr,
+    config: &Config,
+    token_id: TokenId,
+    new_gas_amount: Option<XRPLPaymentAmount>,
+) -> Result<Response, ContractError> {
+    if !killswitch::is_contract_active(storage) {
+        return Err(ContractError::ExecutionDisabled);
+    }
+
+    let gas_claim_inflight = GAS_CLAIM_INFLIGHT.may_load(storage, &token_id)?;
+    let total_gas_amount = match (new_gas_amount, gas_claim_inflight) {
+        (Some(new_gas), Some(inflight_gas)) => inflight_gas.add(new_gas)?,
+        (Some(new_gas), None) => new_gas,
+        (None, Some(inflight_gas)) => inflight_gas,
+        (None, None) => return Err(ContractError::NoGasToClaim),
+    };
+
+    if total_gas_amount.is_zero() {
+        return Err(ContractError::NoGasToClaim);
+    }
+
+    let unsigned_tx = xrpl_multisig::issue_payment(
+        storage,
+        config,
+        config.relayer.clone(),
+        &total_gas_amount,
+        None,
+        None,
+    )?;
+
+    GAS_CLAIM_INFLIGHT.save(storage, &token_id, &total_gas_amount)?;
+
+    Ok(Response::new().add_submessage(start_signing_session(
+        storage,
+        config,
+        unsigned_tx,
+        self_address,
+        None,
+    )?))
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn construct_payment_proof(
     storage: &mut dyn Storage,
@@ -430,7 +476,7 @@ pub fn construct_payment_proof(
                         config,
                         destination_address,
                         &xrpl_amount,
-                        &cc_id,
+                        Some(&cc_id),
                         None, // TODO: Handle cross-currency payments.
                     )?;
 

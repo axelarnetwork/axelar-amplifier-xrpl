@@ -23,6 +23,7 @@ pub const ADMIN: &str = "admin";
 pub const GOVERNANCE: &str = "governance";
 pub const SERVICE_NAME: &str = "validators";
 pub const XRPL_MULITISIG_ADDRESS: &str = "rNrjh1KGZk2jBR3wPfAQnoidtFFYQKbQn2";
+pub const RELAYER_ADDRESS: &str = "r9m9uUCAwMLSnRryXYuUB3cGXojpRznaAo";
 pub const XRP_TOKEN_ID: [u8; 32] = [
     186, 90, 33, 202, 136, 239, 107, 186, 43, 255, 245, 8, 137, 148, 249, 14, 16, 119, 226, 161,
     204, 61, 204, 56, 189, 38, 31, 0, 252, 226, 130, 79,
