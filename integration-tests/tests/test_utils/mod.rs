@@ -44,7 +44,7 @@ use xrpl_gateway::msg::TokenMetadata;
 use xrpl_types::msg::{
     WithPayload, XRPLAddGasMessage, XRPLAddReservesMessage, XRPLMessage, XRPLProverMessage,
 };
-use xrpl_types::types::{XRPLAccountId, XRPLToken, XRPLTokenOrXrp};
+use xrpl_types::types::{hash_signed_tx, XRPLAccountId, XRPLToken, XRPLTokenOrXrp};
 
 pub const AXL_DENOMINATION: &str = "uaxl";
 
@@ -52,17 +52,55 @@ pub const SIGNATURE_BLOCK_EXPIRY: u64 = 100;
 
 pub const AXELAR_CHAIN_NAME: &str = "Axelar";
 
-fn find_event_attribute<'a>(
+pub fn find_event<'a>(events: &'a [Event], event_type: &str) -> Option<&'a Event> {
+    events.iter().find(|ev| ev.ty == event_type)
+}
+
+pub fn find_event_attribute<'a>(
     events: &'a [Event],
     event_type: &str,
     attribute_name: &str,
 ) -> Option<&'a Attribute> {
-    events
-        .iter()
-        .find(|ev| ev.ty == event_type)?
+    find_event(events, event_type)?
         .attributes
         .iter()
         .find(|attribute| attribute.key == attribute_name)
+}
+
+pub fn normalize_event(mut ev: Event) -> Event {
+    ev.ty = ev.ty.trim_start_matches("wasm-").to_string();
+    ev.attributes.retain(|a| a.key != "_contract_address");
+    ev
+}
+
+#[macro_export]
+macro_rules! assert_emitted_event {
+    ($events:expr, $expected:expr, $addr:expr) => {{
+        use cosmwasm_std::Event;
+        use $crate::test_utils::normalize_event;
+
+        let expected: Event = $expected;
+        let expected_norm = normalize_event(expected);
+
+        let actual = $events
+            .iter()
+            .find(|e| e.ty == expected_norm.ty || e.ty == format!("wasm-{}", expected_norm.ty))
+            .unwrap_or_else(|| panic!("event `{}` not found in {:?}", expected_norm.ty, $events))
+            .clone();
+
+        assert!(
+            actual
+                .attributes
+                .iter()
+                .any(|a| a.key == "_contract_address" && a.value == $addr.as_str()),
+            "expected event from contract `{}`, but got {:#?}",
+            $addr,
+            actual
+        );
+
+        let actual_norm = normalize_event(actual);
+        assert_eq!(actual_norm, expected_norm);
+    }};
 }
 
 type PollExpiryBlock = u64;
@@ -431,20 +469,17 @@ pub fn register_service(
     assert!(response.is_ok());
 }
 
-pub fn construct_xrpl_ticket_create_proof_and_sign(
+pub fn xrpl_ticket_create(
     protocol: &mut Protocol,
     multisig_prover: &XRPLMultisigProverContract,
-    verifiers: &Vec<Verifier>,
-) -> Uint64 {
+) -> AppResponse {
     let response = multisig_prover.execute(
         &mut protocol.app,
         MockApi::default().addr_make("relayer"),
         &xrpl_multisig_prover::msg::ExecuteMsg::TicketCreate,
     );
     assert!(response.is_ok());
-    let response = response.unwrap();
-
-    sign_xrpl_proof(protocol, verifiers, response)
+    response.unwrap()
 }
 
 pub fn construct_xrpl_trust_set_proof_and_sign(
@@ -552,6 +587,46 @@ pub fn sign_xrpl_proof(
     }
 
     session_id
+}
+
+pub fn post_to_xrpl_and_confirm(
+    protocol: &mut Protocol,
+    xrpl: &XRPLChain,
+    verifiers: &Vec<Verifier>,
+    response: AppResponse,
+) -> AppResponse {
+    let session_id = sign_xrpl_proof(protocol, verifiers, response);
+    let proof = xrpl_proof(&mut protocol.app, &xrpl.multisig_prover, &session_id);
+    assert!(matches!(
+        proof.status,
+        xrpl_multisig_prover::msg::ProofStatus::Completed { .. }
+    ));
+
+    let signed_tx_hash = match proof.status {
+        xrpl_multisig_prover::msg::ProofStatus::Completed { execute_data } => {
+            hash_signed_tx(execute_data.as_slice()).unwrap()
+        }
+        _ => unreachable!(),
+    };
+
+    let prover_message = XRPLProverMessage {
+        tx_id: signed_tx_hash,
+        unsigned_tx_hash: proof.unsigned_tx_hash,
+    };
+
+    let proof_msgs = vec![XRPLMessage::ProverMessage(prover_message.clone())];
+    let (poll_id, expiry) = verify_xrpl_messages(&mut protocol.app, &xrpl.gateway, &proof_msgs);
+    vote_success(
+        &mut protocol.app,
+        &xrpl.voting_verifier,
+        proof_msgs.len(),
+        verifiers,
+        poll_id,
+    );
+    advance_at_least_to_height(&mut protocol.app, expiry);
+    end_poll(&mut protocol.app, &xrpl.voting_verifier, poll_id);
+
+    xrpl_confirm_prover_message(&mut protocol.app, &xrpl.multisig_prover, prover_message)
 }
 
 pub fn messages_from_gateway(
@@ -769,13 +844,66 @@ pub fn xrpl_confirm_prover_message(
     app: &mut AxelarApp,
     multisig_prover: &XRPLMultisigProverContract,
     prover_message: XRPLProverMessage,
-) {
+) -> cw_multi_test::AppResponse {
     let response = multisig_prover.execute(
         app,
         MockApi::default().addr_make("relayer"),
         &xrpl_multisig_prover::msg::ExecuteMsg::ConfirmProverMessage { prover_message },
     );
     assert!(response.is_ok());
+    response.unwrap()
+}
+
+pub fn xrpl_claim_gas(
+    app: &mut AxelarApp,
+    gateway: &XRPLGatewayContract,
+    admin: Addr,
+    token_id: interchain_token_service::TokenId,
+) -> cw_multi_test::AppResponse {
+    let response = gateway.execute(
+        app,
+        admin,
+        &xrpl_gateway::msg::ExecuteMsg::ClaimGas { token_id },
+    );
+    assert!(response.is_ok());
+    response.unwrap()
+}
+
+pub fn xrpl_gas_accrued(
+    app: &AxelarApp,
+    gateway: &XRPLGatewayContract,
+    token_id: &interchain_token_service::TokenId,
+) -> Option<xrpl_types::types::XRPLPaymentAmount> {
+    let storage = app.contract_storage(&gateway.contract_addr);
+    xrpl_gateway::state::GAS_ACCRUED
+        .may_load(storage.as_ref(), token_id)
+        .unwrap()
+}
+
+pub fn set_xrpl_gas_accrued(
+    app: &mut AxelarApp,
+    gateway: &XRPLGatewayContract,
+    token_id: &interchain_token_service::TokenId,
+    amount: xrpl_types::types::XRPLPaymentAmount,
+) {
+    xrpl_gateway::state::GAS_ACCRUED
+        .save(
+            app.contract_storage_mut(&gateway.contract_addr).as_mut(),
+            token_id,
+            &amount,
+        )
+        .unwrap();
+}
+
+pub fn xrpl_gas_claim_inflight(
+    app: &AxelarApp,
+    multisig_prover: &XRPLMultisigProverContract,
+    token_id: &interchain_token_service::TokenId,
+) -> Option<xrpl_types::types::XRPLPaymentAmount> {
+    let storage = app.contract_storage(&multisig_prover.contract_addr);
+    xrpl_multisig_prover::state::GAS_CLAIM_INFLIGHT
+        .may_load(storage.as_ref(), token_id)
+        .unwrap()
 }
 
 pub fn verifier_info_from_coordinator(
@@ -1213,6 +1341,7 @@ pub struct AxelarnetChain {
 #[derive(Clone)]
 pub struct XRPLChain {
     pub admin: Addr,
+    pub relayer: XRPLAccountId,
     pub gateway: XRPLGatewayContract,
     pub voting_verifier: XRPLVotingVerifierContract,
     pub multisig_prover: XRPLMultisigProverContract,
@@ -1417,7 +1546,7 @@ pub fn setup_xrpl(
 ) -> XRPLChain {
     let xrpl_chain_name = ChainName::from_str("xrpl").unwrap();
     let xrpl_multisig = XRPLAccountId::from_str("rfEf91bLxrTVC76vw1W3Ur8Jk4Lwujskmb").unwrap();
-    let relayer_address = XRPLAccountId::from_str("r9m9uUCAwMLSnRryXYuUB3cGXojpRznaAo").unwrap();
+    let relayer = XRPLAccountId::from_str("r9m9uUCAwMLSnRryXYuUB3cGXojpRznaAo").unwrap();
 
     let admin = MockApi::default().addr_make(format!("{}_admin", xrpl_chain_name).as_str());
 
@@ -1428,28 +1557,43 @@ pub fn setup_xrpl(
         xrpl_chain_name.clone(),
     );
 
+    let prover_creator = protocol.app.api().addr_make("prover_creator");
+    let prover_code_id = XRPLMultisigProverContract::store_code(protocol, prover_creator.clone());
+    let prover_salt = b"prover";
+    let predicted_prover_address = XRPLMultisigProverContract::predict_instantiate2_address(
+        protocol,
+        prover_code_id,
+        &prover_creator,
+        prover_salt,
+    );
+
     let gateway = XRPLGatewayContract::instantiate_contract(
         &mut protocol.app,
         admin.clone(),
         protocol.governance_address.clone(),
         protocol.router.contract_address().clone(),
         voting_verifier.contract_addr.clone(),
-        MockApi::default().addr_make("prover"), // TODO
+        predicted_prover_address.clone(),
         axelar_its_hub_address,
         axelar_chain_name,
         xrpl_chain_name.clone(),
         xrpl_multisig.clone(),
     );
 
-    let multisig_prover = XRPLMultisigProverContract::instantiate_contract(
+    let multisig_prover = XRPLMultisigProverContract::instantiate2_contract(
         protocol,
+        prover_code_id,
+        prover_creator,
+        prover_salt,
         admin.clone(),
         gateway.contract_addr.clone(),
         voting_verifier.contract_addr.clone(),
         xrpl_chain_name.clone(),
         xrpl_multisig.clone(),
-        relayer_address.clone(),
+        relayer.clone(),
     );
+
+    assert_eq!(multisig_prover.contract_addr, predicted_prover_address);
 
     let response = protocol.coordinator.execute(
         &mut protocol.app,
@@ -1553,6 +1697,7 @@ pub fn setup_xrpl(
 
     XRPLChain {
         admin,
+        relayer,
         gateway,
         voting_verifier,
         multisig_prover,

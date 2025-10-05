@@ -1,3 +1,4 @@
+use std::ops::Add;
 use std::str::FromStr;
 
 use axelar_wasm_std::msg_id::HexTxHash;
@@ -16,7 +17,7 @@ use xrpl_types::types::{
     hash_signed_tx, XRPLAccountId, XRPLCurrency, XRPLPaymentAmount, XRPLToken,
 };
 
-use crate::test_utils::AXL_DENOMINATION;
+use crate::test_utils::{sign_xrpl_proof, AXL_DENOMINATION};
 
 #[macro_use]
 pub mod test_utils;
@@ -140,12 +141,9 @@ fn xrpl_ticket_create_can_be_proven() {
     } = test_utils::setup_xrpl_destination_test_case();
 
     /* Create tickets */
-    let session_id = test_utils::construct_xrpl_ticket_create_proof_and_sign(
-        &mut protocol,
-        &xrpl.multisig_prover,
-        &verifiers,
-    );
+    let response = test_utils::xrpl_ticket_create(&mut protocol, &xrpl.multisig_prover);
 
+    let session_id = sign_xrpl_proof(&mut protocol, &verifiers, response);
     let proof = test_utils::xrpl_proof(&mut protocol.app, &xrpl.multisig_prover, &session_id);
     assert!(matches!(
         proof.status,
@@ -655,6 +653,10 @@ fn can_add_gas_to_xrpl_message() {
         &[xrpl_add_gas_message],
     );
 
+    let gas_accrued =
+        test_utils::xrpl_gas_accrued(&protocol.app, &xrpl.gateway, &xrpl.xrp_token_id);
+    assert_eq!(gas_accrued, Some(amount.clone()));
+
     // Advance the height to be able to distribute rewards
     test_utils::advance_height(
         &mut protocol.app,
@@ -1057,4 +1059,398 @@ fn routing_to_incorrect_gateway_interface() {
         &router_api::msg::ExecuteMsg::RouteMessages(msgs.to_vec()),
     );
     assert!(response.is_err())
+}
+
+#[test]
+fn xrpl_gas_claim_creates_proof() {
+    let test_utils::XRPLDestinationTestCase {
+        mut protocol,
+        xrpl,
+        verifiers,
+        ..
+    } = test_utils::setup_xrpl_destination_test_case();
+
+    let token_id = xrpl.xrp_token_id;
+    let gas_amount = XRPLPaymentAmount::Drops(100000); // 0.1 XRP
+
+    test_utils::set_xrpl_gas_accrued(
+        &mut protocol.app,
+        &xrpl.gateway,
+        &xrpl.xrp_token_id,
+        gas_amount.clone(),
+    );
+
+    let claim_gas_response = test_utils::xrpl_claim_gas(
+        &mut protocol.app,
+        &xrpl.gateway,
+        xrpl.admin.clone(),
+        token_id,
+    );
+
+    let confirm_prover_message_response =
+        test_utils::post_to_xrpl_and_confirm(&mut protocol, &xrpl, &verifiers, claim_gas_response);
+
+    let expected_gas_claimed_event: cosmwasm_std::Event =
+        xrpl_multisig_prover::events::Event::GasClaimed {
+            tx_id: "1885551ff3a175d0ba31c86703071f544851fd659b11d1bdfe96b71a22e0bd85"
+                .to_string()
+                .try_into()
+                .unwrap(),
+            token_id,
+            destination_address: xrpl.relayer,
+            amount: gas_amount,
+        }
+        .into();
+    assert_emitted_event!(
+        &confirm_prover_message_response.events,
+        expected_gas_claimed_event,
+        xrpl.multisig_prover.contract_addr
+    );
+}
+
+#[test]
+fn xrpl_gas_claim_with_no_gas_fails() {
+    let test_utils::XRPLDestinationTestCase {
+        mut protocol, xrpl, ..
+    } = test_utils::setup_xrpl_destination_test_case();
+
+    let response = xrpl.multisig_prover.execute(
+        &mut protocol.app,
+        xrpl.gateway.contract_addr.clone(),
+        &xrpl_multisig_prover::msg::ExecuteMsg::ClaimGas {
+            token_id: xrpl.xrp_token_id,
+            amount: None,
+        },
+    );
+
+    assert!(response.is_err());
+    assert_eq!(response.unwrap_err().to_string(), "no gas to claim");
+}
+
+#[test]
+fn xrpl_gas_claim_can_be_recovered() {
+    let test_utils::XRPLDestinationTestCase {
+        mut protocol,
+        xrpl,
+        verifiers,
+        ..
+    } = test_utils::setup_xrpl_destination_test_case();
+
+    let gas_claim_amount = XRPLPaymentAmount::Drops(31337);
+    test_utils::set_xrpl_gas_accrued(
+        &mut protocol.app,
+        &xrpl.gateway,
+        &xrpl.xrp_token_id,
+        gas_claim_amount.clone(),
+    );
+
+    let token_id = xrpl.xrp_token_id;
+    assert_eq!(
+        test_utils::xrpl_gas_accrued(&protocol.app, &xrpl.gateway, &token_id),
+        Some(gas_claim_amount.clone())
+    );
+    test_utils::xrpl_claim_gas(
+        &mut protocol.app,
+        &xrpl.gateway,
+        xrpl.admin.clone(),
+        token_id,
+    );
+    assert_eq!(
+        test_utils::xrpl_gas_accrued(&protocol.app, &xrpl.gateway, &token_id),
+        None
+    );
+    assert_eq!(
+        test_utils::xrpl_gas_claim_inflight(&protocol.app, &xrpl.multisig_prover, &token_id),
+        Some(gas_claim_amount.clone())
+    );
+
+    let ticket_create_response =
+        test_utils::xrpl_ticket_create(&mut protocol, &xrpl.multisig_prover);
+    test_utils::post_to_xrpl_and_confirm(&mut protocol, &xrpl, &verifiers, ticket_create_response);
+
+    assert_eq!(
+        test_utils::xrpl_gas_accrued(&protocol.app, &xrpl.gateway, &token_id),
+        None
+    );
+    assert_eq!(
+        test_utils::xrpl_gas_claim_inflight(&protocol.app, &xrpl.multisig_prover, &token_id),
+        Some(gas_claim_amount.clone())
+    );
+
+    let gas_claim_response = test_utils::xrpl_claim_gas(
+        &mut protocol.app,
+        &xrpl.gateway,
+        xrpl.admin.clone(),
+        token_id,
+    );
+    let gas_claim_confirm_response =
+        test_utils::post_to_xrpl_and_confirm(&mut protocol, &xrpl, &verifiers, gas_claim_response);
+
+    assert_eq!(
+        test_utils::xrpl_gas_accrued(&protocol.app, &xrpl.gateway, &token_id),
+        None
+    );
+    assert_eq!(
+        test_utils::xrpl_gas_claim_inflight(&protocol.app, &xrpl.multisig_prover, &token_id),
+        None
+    );
+
+    let expected_gas_claimed_event: cosmwasm_std::Event =
+        xrpl_multisig_prover::events::Event::GasClaimed {
+            tx_id: "a122a017d29a7be983fc0f5b32eac1467777a7dcea3e79488c466605103b2128"
+                .to_string()
+                .try_into()
+                .unwrap(),
+            token_id,
+            destination_address: xrpl.relayer.clone(),
+            amount: gas_claim_amount,
+        }
+        .into();
+    assert_emitted_event!(
+        gas_claim_confirm_response.events,
+        expected_gas_claimed_event,
+        xrpl.multisig_prover.contract_addr
+    );
+
+    // Note that the first claim can never be confirmed after the second
+    // since they were both assigned the same sequence number.
+}
+
+#[test]
+fn xrpl_parallel_gas_claims_accumulate_if_second_wins_race() {
+    let test_utils::XRPLDestinationTestCase {
+        mut protocol,
+        xrpl,
+        verifiers,
+        ..
+    } = test_utils::setup_xrpl_destination_test_case();
+
+    let first_claim_amount = XRPLPaymentAmount::Drops(100000);
+    test_utils::set_xrpl_gas_accrued(
+        &mut protocol.app,
+        &xrpl.gateway,
+        &xrpl.xrp_token_id,
+        first_claim_amount.clone(),
+    );
+
+    let token_id = xrpl.xrp_token_id;
+    assert_eq!(
+        test_utils::xrpl_gas_accrued(&protocol.app, &xrpl.gateway, &token_id),
+        Some(first_claim_amount.clone())
+    );
+    test_utils::xrpl_claim_gas(
+        &mut protocol.app,
+        &xrpl.gateway,
+        xrpl.admin.clone(),
+        token_id,
+    );
+    assert_eq!(
+        test_utils::xrpl_gas_accrued(&protocol.app, &xrpl.gateway, &token_id),
+        None
+    );
+    assert_eq!(
+        test_utils::xrpl_gas_claim_inflight(&protocol.app, &xrpl.multisig_prover, &token_id),
+        Some(first_claim_amount.clone())
+    );
+
+    let second_claim_amount = XRPLPaymentAmount::Drops(50000);
+    test_utils::set_xrpl_gas_accrued(
+        &mut protocol.app,
+        &xrpl.gateway,
+        &xrpl.xrp_token_id,
+        second_claim_amount.clone(),
+    );
+
+    let total_claim_amount = first_claim_amount
+        .clone()
+        .add(second_claim_amount.clone())
+        .unwrap();
+    // Before confirming the first claim, initiate a second gas claim: 50,000 drops
+    // This should accumulate on top of the in-flight amount
+    let second_response = test_utils::xrpl_claim_gas(
+        &mut protocol.app,
+        &xrpl.gateway,
+        xrpl.admin.clone(),
+        token_id,
+    );
+    assert_eq!(
+        test_utils::xrpl_gas_accrued(&protocol.app, &xrpl.gateway, &token_id),
+        None
+    );
+    assert_eq!(
+        test_utils::xrpl_gas_claim_inflight(&protocol.app, &xrpl.multisig_prover, &token_id),
+        Some(total_claim_amount.clone())
+    );
+
+    // Complete and confirm the SECOND claim FIRST
+    let second_confirm_response =
+        test_utils::post_to_xrpl_and_confirm(&mut protocol, &xrpl, &verifiers, second_response);
+    assert_eq!(
+        test_utils::xrpl_gas_accrued(&protocol.app, &xrpl.gateway, &token_id),
+        None
+    );
+    assert_eq!(
+        test_utils::xrpl_gas_claim_inflight(&protocol.app, &xrpl.multisig_prover, &token_id),
+        None
+    );
+
+    let expected_gas_claimed_event: cosmwasm_std::Event =
+        xrpl_multisig_prover::events::Event::GasClaimed {
+            tx_id: "1468432bae817e259640975d45f2f329117a12d078e1e99adafc0be2171f27cc"
+                .to_string()
+                .try_into()
+                .unwrap(),
+            token_id,
+            destination_address: xrpl.relayer.clone(),
+            amount: total_claim_amount,
+        }
+        .into();
+    assert_emitted_event!(
+        second_confirm_response.events,
+        expected_gas_claimed_event,
+        xrpl.multisig_prover.contract_addr
+    );
+
+    // Note that the first claim can never be confirmed after the second
+    // since they were both assigned the same sequence number.
+}
+
+#[test]
+fn xrpl_parallel_gas_claims_allow_recovery_if_first_wins_race() {
+    let test_utils::XRPLDestinationTestCase {
+        mut protocol,
+        xrpl,
+        verifiers,
+        ..
+    } = test_utils::setup_xrpl_destination_test_case();
+
+    let first_claim_amount = XRPLPaymentAmount::Drops(100000);
+    test_utils::set_xrpl_gas_accrued(
+        &mut protocol.app,
+        &xrpl.gateway,
+        &xrpl.xrp_token_id,
+        first_claim_amount.clone(),
+    );
+
+    let token_id = xrpl.xrp_token_id;
+    assert_eq!(
+        test_utils::xrpl_gas_accrued(&protocol.app, &xrpl.gateway, &token_id),
+        Some(first_claim_amount.clone())
+    );
+    let first_response = test_utils::xrpl_claim_gas(
+        &mut protocol.app,
+        &xrpl.gateway,
+        xrpl.admin.clone(),
+        token_id,
+    );
+    assert_eq!(
+        test_utils::xrpl_gas_accrued(&protocol.app, &xrpl.gateway, &token_id),
+        None
+    );
+    assert_eq!(
+        test_utils::xrpl_gas_claim_inflight(&protocol.app, &xrpl.multisig_prover, &token_id),
+        Some(first_claim_amount.clone())
+    );
+
+    let second_claim_amount = XRPLPaymentAmount::Drops(50000);
+    test_utils::set_xrpl_gas_accrued(
+        &mut protocol.app,
+        &xrpl.gateway,
+        &xrpl.xrp_token_id,
+        second_claim_amount.clone(),
+    );
+
+    let total_claim_amount = first_claim_amount
+        .clone()
+        .add(second_claim_amount.clone())
+        .unwrap();
+    // Before confirming the first claim, initiate a second gas claim: 50,000 drops
+    // This should accumulate on top of the in-flight amount
+    test_utils::xrpl_claim_gas(
+        &mut protocol.app,
+        &xrpl.gateway,
+        xrpl.admin.clone(),
+        token_id,
+    );
+    assert_eq!(
+        test_utils::xrpl_gas_accrued(&protocol.app, &xrpl.gateway, &token_id),
+        None
+    );
+    assert_eq!(
+        test_utils::xrpl_gas_claim_inflight(&protocol.app, &xrpl.multisig_prover, &token_id),
+        Some(total_claim_amount.clone())
+    );
+
+    // Complete and confirm the FIRST claim before the SECOND
+    let first_confirm_response =
+        test_utils::post_to_xrpl_and_confirm(&mut protocol, &xrpl, &verifiers, first_response);
+    assert_eq!(
+        test_utils::xrpl_gas_accrued(&protocol.app, &xrpl.gateway, &token_id),
+        None
+    );
+    assert_eq!(
+        test_utils::xrpl_gas_claim_inflight(&protocol.app, &xrpl.multisig_prover, &token_id),
+        Some(second_claim_amount.clone())
+    );
+
+    let expected_gas_claimed_event: cosmwasm_std::Event =
+        xrpl_multisig_prover::events::Event::GasClaimed {
+            tx_id: "1885551ff3a175d0ba31c86703071f544851fd659b11d1bdfe96b71a22e0bd85"
+                .to_string()
+                .try_into()
+                .unwrap(),
+            token_id,
+            destination_address: xrpl.relayer.clone(),
+            amount: first_claim_amount,
+        }
+        .into();
+    assert_emitted_event!(
+        first_confirm_response.events,
+        expected_gas_claimed_event,
+        xrpl.multisig_prover.contract_addr
+    );
+
+    // Can still claim the remaining inflight gas amount
+    let remaining_response = test_utils::xrpl_claim_gas(
+        &mut protocol.app,
+        &xrpl.gateway,
+        xrpl.admin.clone(),
+        token_id,
+    );
+    assert_eq!(
+        test_utils::xrpl_gas_accrued(&protocol.app, &xrpl.gateway, &token_id),
+        None
+    );
+    assert_eq!(
+        test_utils::xrpl_gas_claim_inflight(&protocol.app, &xrpl.multisig_prover, &token_id),
+        Some(second_claim_amount.clone())
+    );
+
+    let remaining_confirm_response =
+        test_utils::post_to_xrpl_and_confirm(&mut protocol, &xrpl, &verifiers, remaining_response);
+    assert_eq!(
+        test_utils::xrpl_gas_accrued(&protocol.app, &xrpl.gateway, &token_id),
+        None
+    );
+    assert_eq!(
+        test_utils::xrpl_gas_claim_inflight(&protocol.app, &xrpl.multisig_prover, &token_id),
+        None
+    );
+
+    let expected_gas_claimed_event: cosmwasm_std::Event =
+        xrpl_multisig_prover::events::Event::GasClaimed {
+            tx_id: "582dc96c991665704f0a3ae332df0494692b22d7f8cffb6f88f41770b611005e"
+                .to_string()
+                .try_into()
+                .unwrap(),
+            token_id,
+            destination_address: xrpl.relayer.clone(),
+            amount: second_claim_amount,
+        }
+        .into();
+    assert_emitted_event!(
+        remaining_confirm_response.events,
+        expected_gas_claimed_event,
+        xrpl.multisig_prover.contract_addr
+    );
 }
