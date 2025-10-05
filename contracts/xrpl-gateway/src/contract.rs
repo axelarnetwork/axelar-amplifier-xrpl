@@ -46,6 +46,8 @@ pub enum Error {
     FailedToEncodeClaimGasMsg,
     #[error("failed to encode update relayer xrpl address prover message")]
     FailedToEncodeUpdateRelayerXrplAddressMsg,
+    #[error("failed to update relayer")]
+    FailedToUpdateRelayer,
     #[error("invalid address")]
     InvalidAddress,
     #[error("invalid cross-chain id")]
@@ -296,6 +298,9 @@ pub fn execute(
         ExecuteMsg::UpdateAdmin { new_admin_address } => {
             execute::update_admin(deps, new_admin_address)
         }
+        ExecuteMsg::UpdateRelayer {
+            new_relayer_address,
+        } => execute::update_relayer(deps, new_relayer_address),
         ExecuteMsg::DisableExecution => execute::disable_execution(deps.storage),
         ExecuteMsg::EnableExecution => execute::enable_execution(deps.storage),
         ExecuteMsg::ClaimGas { token_id } => {

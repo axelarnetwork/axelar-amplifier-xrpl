@@ -120,6 +120,9 @@ pub enum ExecuteMsg {
     #[permission(Elevated)]
     UpdateAdmin { new_admin_address: String },
 
+    #[permission(Elevated)]
+    UpdateRelayer { new_relayer_address: String },
+
     // Engages execution killswitch.
     #[permission(Elevated)]
     EnableExecution,

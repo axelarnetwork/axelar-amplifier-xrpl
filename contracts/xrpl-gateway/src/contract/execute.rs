@@ -224,6 +224,17 @@ pub fn update_admin(deps: DepsMut, new_admin_address: String) -> Result<Response
     Ok(Response::new())
 }
 
+pub fn update_relayer(deps: DepsMut, new_relayer_address: String) -> Result<Response, Error> {
+    let new_relayer = address::validate_cosmwasm_address(deps.api, &new_relayer_address)
+        .change_context(Error::FailedToUpdateRelayer)?;
+
+    let mut config = state::load_config(deps.storage);
+    config.relayer = new_relayer;
+    state::save_config(deps.storage, &config).change_context(Error::FailedToUpdateRelayer)?;
+
+    Ok(Response::new())
+}
+
 pub fn translate_to_interchain_transfer(
     storage: &dyn Storage,
     querier: QuerierWrapper,
