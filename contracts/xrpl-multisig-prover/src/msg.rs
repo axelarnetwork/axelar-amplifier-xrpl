@@ -196,6 +196,14 @@ pub enum ExecuteMsg {
         token_id: TokenId,
         amount: Option<XRPLPaymentAmount>,
     },
+
+    /// Update the XRPL relayer address (fee recipient).
+    #[permission(Specific(gateway))]
+    UpdateRelayerXrplAddress {
+        #[serde(with = "xrpl_account_id_string")]
+        #[schemars(with = "String")]
+        new_relayer_xrpl_address: XRPLAccountId,
+    },
 }
 
 #[cw_serde]

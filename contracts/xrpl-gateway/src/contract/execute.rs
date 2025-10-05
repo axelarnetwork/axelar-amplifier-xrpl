@@ -593,6 +593,11 @@ enum XRPLMultisigProverExecuteMsg {
         token_id: TokenId,
         amount: Option<XRPLPaymentAmount>,
     },
+    UpdateRelayerXrplAddress {
+        #[serde(with = "xrpl_types::types::xrpl_account_id_string")]
+        #[schemars(with = "String")]
+        new_relayer_xrpl_address: XRPLAccountId,
+    },
 }
 
 pub fn claim_gas(
@@ -610,6 +615,20 @@ pub fn claim_gas(
             amount: gas_amount,
         })
         .change_context(Error::FailedToEncodeClaimGasMsg)?,
+        funds: vec![],
+    }))
+}
+
+pub fn update_relayer_xrpl_address(
+    prover: Addr,
+    new_relayer_xrpl_address: XRPLAccountId,
+) -> Result<Response, Error> {
+    Ok(Response::new().add_message(WasmMsg::Execute {
+        contract_addr: prover.to_string(),
+        msg: to_json_binary(&XRPLMultisigProverExecuteMsg::UpdateRelayerXrplAddress {
+            new_relayer_xrpl_address,
+        })
+        .change_context(Error::FailedToEncodeUpdateRelayerXrplAddressMsg)?,
         funds: vec![],
     }))
 }

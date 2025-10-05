@@ -162,6 +162,9 @@ pub fn execute(
             token_id,
             amount,
         ),
+        ExecuteMsg::UpdateRelayerXrplAddress {
+            new_relayer_xrpl_address,
+        } => execute::update_relayer_xrpl_address(deps.storage, new_relayer_xrpl_address),
     }?
     .then(Ok)
 }

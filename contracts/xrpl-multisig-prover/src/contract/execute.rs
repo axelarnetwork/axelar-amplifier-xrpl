@@ -25,7 +25,7 @@ use crate::contract::query;
 use crate::error::ContractError;
 use crate::events::Event;
 use crate::state::{
-    self, Config, FEE_RESERVE, FEE_RESERVE_TOP_UP_COUNTED, GAS_CLAIM_INFLIGHT, TRUST_LINE,
+    self, Config, CONFIG, FEE_RESERVE, FEE_RESERVE_TOP_UP_COUNTED, GAS_CLAIM_INFLIGHT, TRUST_LINE,
 };
 use crate::xrpl_serialize::XRPLSerialize;
 use crate::{axelar_verifiers, xrpl_multisig};
@@ -363,6 +363,18 @@ pub fn claim_gas(
         self_address,
         None,
     )?))
+}
+
+pub fn update_relayer_xrpl_address(
+    storage: &mut dyn Storage,
+    new_relayer_xrpl_address: XRPLAccountId,
+) -> Result<Response, ContractError> {
+    CONFIG.update(storage, |mut config| -> Result<_, ContractError> {
+        config.relayer = new_relayer_xrpl_address.clone();
+        Ok(config)
+    })?;
+
+    Ok(Response::new())
 }
 
 #[allow(clippy::too_many_arguments)]

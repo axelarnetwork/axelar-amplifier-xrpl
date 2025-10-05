@@ -131,6 +131,14 @@ pub enum ExecuteMsg {
     /// Claim gas fees accrued for a specific token.
     #[permission(Elevated, Specific(relayer))]
     ClaimGas { token_id: TokenId },
+
+    /// Update the XRPL relayer address (fee recipient) on the prover.
+    #[permission(Elevated, Specific(relayer))]
+    UpdateRelayerXrplAddress {
+        #[serde(with = "xrpl_account_id_string")]
+        #[schemars(with = "String")]
+        new_relayer_xrpl_address: XRPLAccountId,
+    },
 }
 
 #[cw_serde]
