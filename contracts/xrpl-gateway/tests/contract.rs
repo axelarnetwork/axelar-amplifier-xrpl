@@ -44,6 +44,7 @@ fn instantiate_works() {
             admin_address: api.addr_make("admin").into_string(),
             governance_address: api.addr_make("governance").into_string(),
             verifier_address: api.addr_make("verifier").into_string(),
+            prover_address: api.addr_make("prover").into_string(),
             router_address: api.addr_make("router").into_string(),
             its_hub_address: api.addr_make("its-hub").into_string(),
             its_hub_chain_name: ChainName::from_str("axelar").unwrap(),
@@ -66,6 +67,7 @@ fn successful_verify() {
         instantiate_contract(
             deps.as_default_mut(),
             "verifier",
+            "prover",
             "router",
             "its-hub",
             ChainName::from_str("axelar").unwrap(),
@@ -109,6 +111,7 @@ fn successful_route_incoming() {
         instantiate_contract(
             deps.as_default_mut(),
             "verifier",
+            "prover",
             "router",
             "its-hub",
             ChainName::from_str("axelar").unwrap(),
@@ -169,6 +172,7 @@ fn successful_route_outgoing() {
         instantiate_contract(
             deps.as_mut(),
             "verifier",
+            "prover",
             router,
             "its-hub",
             ChainName::from_str("axelar").unwrap(),
@@ -223,6 +227,7 @@ fn verify_with_faulty_verifier_fails() {
     instantiate_contract(
         deps.as_mut(),
         "verifier",
+        "prover",
         "router",
         "its-hub",
         ChainName::from_str("axelar").unwrap(),
@@ -247,6 +252,7 @@ fn route_incoming_with_faulty_verifier_fails() {
     instantiate_contract(
         deps.as_mut(),
         "verifier",
+        "prover",
         "router",
         "its-hub",
         ChainName::from_str("axelar").unwrap(),
@@ -273,6 +279,7 @@ fn incoming_calls_with_duplicate_ids_should_fail() {
         instantiate_contract(
             deps.as_default_mut(),
             "verifier",
+            "prover",
             router,
             "its-hub",
             ChainName::from_str("axelar").unwrap(),
@@ -317,6 +324,7 @@ fn outgoing_calls_with_duplicate_ids_should_fail() {
         instantiate_contract(
             deps.as_mut(),
             "verifier",
+            "prover",
             router,
             "its-hub",
             ChainName::from_str("axelar").unwrap(),
@@ -349,6 +357,7 @@ fn outgoing_route_duplicate_ids_should_fail() {
         instantiate_contract(
             deps.as_mut(),
             "verifier",
+            "prover",
             "router",
             "its-hub",
             ChainName::from_str("axelar").unwrap(),
@@ -374,6 +383,7 @@ fn incoming_route_duplicate_ids_should_fail() {
         instantiate_contract(
             deps.as_default_mut(),
             "verifier",
+            "prover",
             "router",
             "its-hub",
             ChainName::from_str("axelar").unwrap(),
@@ -400,6 +410,7 @@ fn reject_reroute_outgoing_message_with_different_contents() {
     instantiate_contract(
         deps.as_mut(),
         "verifier",
+        "prover",
         router,
         its_hub,
         ChainName::from_str("axelar").unwrap(),
@@ -752,6 +763,7 @@ impl<S: Storage, A: Api, Q: Querier, C: CustomQuery> OwnedDepsExt for OwnedDeps<
 fn instantiate_contract(
     deps: DepsMut,
     verifier: &str,
+    prover: &str,
     router: &str,
     its_hub: &str,
     its_hub_chain_name: ChainName,
@@ -765,6 +777,7 @@ fn instantiate_contract(
             admin_address: api.addr_make("admin").into_string(),
             governance_address: api.addr_make("governance").into_string(),
             verifier_address: api.addr_make(verifier).into_string(),
+            prover_address: api.addr_make(prover).into_string(),
             router_address: api.addr_make(router).into_string(),
             its_hub_address: api.addr_make(its_hub).into_string(),
             its_hub_chain_name,

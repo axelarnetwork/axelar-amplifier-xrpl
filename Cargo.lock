@@ -11301,6 +11301,7 @@ dependencies = [
  "rand 0.8.5",
  "report 1.0.0",
  "router-api 1.0.0 (git+https://github.com/commonprefix/axelar-amplifier?branch=fix/non-unique-unsigned-tx-hash)",
+ "semver 1.0.26",
  "serde",
  "serde_json",
  "sha3",

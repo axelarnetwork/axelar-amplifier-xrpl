@@ -18,6 +18,7 @@ use xrpl_types::types::{
 
 use crate::test_utils::AXL_DENOMINATION;
 
+#[macro_use]
 pub mod test_utils;
 
 /// Tests that a single message can be routed fully through the protocol. Submits a message to the

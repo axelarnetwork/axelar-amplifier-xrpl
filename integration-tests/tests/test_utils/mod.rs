@@ -1434,6 +1434,7 @@ pub fn setup_xrpl(
         protocol.governance_address.clone(),
         protocol.router.contract_address().clone(),
         voting_verifier.contract_addr.clone(),
+        MockApi::default().addr_make("prover"), // TODO
         axelar_its_hub_address,
         axelar_chain_name,
         xrpl_chain_name.clone(),

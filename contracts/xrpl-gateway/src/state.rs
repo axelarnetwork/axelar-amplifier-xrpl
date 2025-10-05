@@ -15,6 +15,7 @@ use xrpl_types::types::{XRPLAccountId, XRPLCurrency, XRPLPaymentAmount, XRPLToke
 #[cw_serde]
 pub struct Config {
     pub verifier: Addr,
+    pub prover: Addr,
     pub router: Addr,
     pub its_hub: Addr,
     pub its_hub_chain_name: ChainName,
@@ -41,7 +42,7 @@ const TOKEN_ID_TO_XRPL_TOKEN: Map<&TokenId, XRPLToken> = Map::new("token_id_to_x
 const TOKEN_INSTACE_DECIMALS: Map<&(ChainNameRaw, TokenId), u8> =
     Map::new("token_instance_decimals");
 
-const GAS_ACCRUED: Map<&TokenId, XRPLPaymentAmount> = Map::new("gas_accrued");
+pub const GAS_ACCRUED: Map<&TokenId, XRPLPaymentAmount> = Map::new("gas_accrued");
 const GAS_COUNTED: Map<&Hash, ()> = Map::new("gas_counted");
 
 #[derive(thiserror::Error, Debug, IntoContractError)]
@@ -74,6 +75,19 @@ fn increment_gas(
             Some(existing_gas) => existing_gas.add(new_gas),
             None => Ok(new_gas),
         })
+        .change_context(Error::Storage)
+}
+
+pub fn reset_gas(storage: &mut dyn Storage, token_id: &TokenId) {
+    GAS_ACCRUED.remove(storage, token_id);
+}
+
+pub fn may_load_gas(
+    storage: &dyn Storage,
+    token_id: &TokenId,
+) -> Result<Option<XRPLPaymentAmount>, Error> {
+    GAS_ACCRUED
+        .may_load(storage, token_id)
         .change_context(Error::Storage)
 }
 

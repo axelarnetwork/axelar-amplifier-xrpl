@@ -2,11 +2,13 @@ use std::fmt::Debug;
 use std::str::FromStr;
 
 use axelar_core_std::nexus;
-use axelar_wasm_std::{address, killswitch, permission_control, FnExt, IntoContractError};
+use axelar_wasm_std::{
+    address, killswitch, migrate_from_version, permission_control, FnExt, IntoContractError,
+};
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    to_json_binary, Binary, Deps, DepsMut, Empty, Env, HexBinary, MessageInfo, Response, StdError,
+    to_json_binary, Binary, Deps, DepsMut, Env, HexBinary, MessageInfo, Response, StdError,
 };
 use error_stack::ResultExt;
 use interchain_token_service::TokenId;
@@ -17,11 +19,12 @@ use xrpl_types::types::{
 };
 
 use crate::events::XRPLGatewayEvent;
-use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
+use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg};
 use crate::state::Config;
 use crate::{state, token_id};
 
 mod execute;
+mod migrations;
 mod query;
 
 const CONTRACT_NAME: &str = env!("CARGO_PKG_NAME");
@@ -39,6 +42,8 @@ pub enum Error {
     Execute,
     #[error("contract execution disabled")]
     ExecutionDisabled,
+    #[error("failed to encode gas claim prover message")]
+    FailedToEncodeClaimGasMsg,
     #[error("invalid address")]
     InvalidAddress,
     #[error("invalid cross-chain id")]
@@ -137,14 +142,17 @@ pub enum Error {
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
+#[migrate_from_version("1.3")]
 pub fn migrate(
     deps: DepsMut,
     _env: Env,
-    _msg: Empty,
+    msg: MigrateMsg,
 ) -> Result<Response, axelar_wasm_std::error::ContractError> {
     cw2::assert_contract_version(deps.storage, CONTRACT_NAME, BASE_VERSION)?;
 
     killswitch::init(deps.storage, killswitch::State::Disengaged)?;
+
+    migrations::migrate_config(deps.storage, deps.api, msg)?;
 
     cw2::set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
@@ -162,6 +170,7 @@ pub fn instantiate(
 
     let router = address::validate_cosmwasm_address(deps.api, &msg.router_address)?;
     let verifier = address::validate_cosmwasm_address(deps.api, &msg.verifier_address)?;
+    let prover = address::validate_cosmwasm_address(deps.api, &msg.prover_address)?;
     let its_hub = address::validate_cosmwasm_address(deps.api, &msg.its_hub_address)?;
 
     let xrp_issuer = XRPLAccountId::from_str(XRP_ISSUER).expect("invalid XRP issuer");
@@ -173,6 +182,7 @@ pub fn instantiate(
         deps.storage,
         &Config {
             verifier,
+            prover,
             router,
             its_hub,
             its_hub_chain_name: msg.its_hub_chain_name,
@@ -281,6 +291,9 @@ pub fn execute(
         }
         ExecuteMsg::DisableExecution => execute::disable_execution(deps.storage),
         ExecuteMsg::EnableExecution => execute::enable_execution(deps.storage),
+        ExecuteMsg::ClaimGas { token_id } => {
+            execute::claim_gas(deps.storage, config.prover, token_id)
+        }
     }?
     .then(Ok)
 }
@@ -346,10 +359,9 @@ pub fn query(
 mod test {
     use assert_ok::assert_ok;
     use cosmwasm_std::testing::{message_info, mock_dependencies, mock_env};
-    use cosmwasm_std::Empty;
 
     use crate::contract::{instantiate, migrate, BASE_VERSION, CONTRACT_NAME, CONTRACT_VERSION};
-    use crate::msg::InstantiateMsg;
+    use crate::msg::{InstantiateMsg, MigrateMsg};
 
     #[test]
     fn migrate_sets_contract_version() {
@@ -361,6 +373,7 @@ mod test {
             admin_address: api.addr_make("admin").to_string(),
             governance_address: api.addr_make("governance").to_string(),
             verifier_address: api.addr_make("verifier").to_string(),
+            prover_address: api.addr_make("prover").to_string(),
             router_address: api.addr_make("router").to_string(),
             its_hub_address: api.addr_make("its_hub").to_string(),
             its_hub_chain_name: "hub".parse().unwrap(),
@@ -385,7 +398,14 @@ mod test {
             )
             .unwrap();
 
-        migrate(deps.as_mut(), mock_env(), Empty {}).unwrap();
+        migrate(
+            deps.as_mut(),
+            mock_env(),
+            MigrateMsg {
+                prover_address: api.addr_make("new_prover").to_string(),
+            },
+        )
+        .unwrap();
 
         let contract_version = cw2::get_contract_version(deps.as_mut().storage).unwrap();
         assert_eq!(contract_version.contract, CONTRACT_NAME);

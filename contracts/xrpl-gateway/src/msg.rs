@@ -24,6 +24,8 @@ pub struct InstantiateMsg {
     pub governance_address: String,
     /// Address of the verifier contract on axelar associated with the source chain. E.g., the voting verifier contract.
     pub verifier_address: String,
+    /// Address of the prover contract on axelar associated with the source chain. E.g., the multisig prover contract.
+    pub prover_address: String,
     /// Address of the router contract on axelar.
     pub router_address: String,
     /// Address of the ITS Hub contract on axelar.
@@ -123,6 +125,10 @@ pub enum ExecuteMsg {
     // Disengages execution killswitch.
     #[permission(Elevated)]
     DisableExecution,
+
+    /// Claim gas fees accrued for a specific token.
+    #[permission(Elevated)]
+    ClaimGas { token_id: TokenId },
 }
 
 #[cw_serde]
@@ -184,4 +190,10 @@ pub enum QueryMsg {
 
     #[returns(bool)]
     IsEnabled,
+}
+
+#[cw_serde]
+pub struct MigrateMsg {
+    /// Address of the XRPL multisig prover contract on axelar.
+    pub prover_address: String,
 }

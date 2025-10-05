@@ -7,7 +7,8 @@ use axelar_wasm_std::{
     address, killswitch, nonempty, permission_control, FnExt, VerificationStatus,
 };
 use cosmwasm_std::{
-    Addr, CosmosMsg, DepsMut, Event, HexBinary, QuerierWrapper, Response, Storage, Uint256,
+    to_json_binary, Addr, CosmosMsg, DepsMut, Event, HexBinary, QuerierWrapper, Response, Storage,
+    Uint256, WasmMsg,
 };
 use error_stack::{ensure, report, Result, ResultExt};
 use interchain_token_service::{self, TokenId};
@@ -583,6 +584,34 @@ pub fn register_remote_token(
     }
 
     Ok(Response::default())
+}
+
+// TODO: Import from xrpl-multisig-prover-api
+#[cosmwasm_schema::cw_serde]
+enum XRPLMultisigProverExecuteMsg {
+    ClaimGas {
+        token_id: TokenId,
+        amount: Option<XRPLPaymentAmount>,
+    },
+}
+
+pub fn claim_gas(
+    storage: &mut dyn Storage,
+    prover: Addr,
+    token_id: TokenId,
+) -> Result<Response, Error> {
+    let gas_amount = state::may_load_gas(storage, &token_id).change_context(Error::State)?;
+    state::reset_gas(storage, &token_id);
+
+    Ok(Response::new().add_message(WasmMsg::Execute {
+        contract_addr: prover.to_string(),
+        msg: to_json_binary(&XRPLMultisigProverExecuteMsg::ClaimGas {
+            token_id,
+            amount: gas_amount,
+        })
+        .change_context(Error::FailedToEncodeClaimGasMsg)?,
+        funds: vec![],
+    }))
 }
 
 fn construct_its_hub_message(
