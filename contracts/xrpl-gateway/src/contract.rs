@@ -172,6 +172,7 @@ pub fn instantiate(
     let verifier = address::validate_cosmwasm_address(deps.api, &msg.verifier_address)?;
     let prover = address::validate_cosmwasm_address(deps.api, &msg.prover_address)?;
     let its_hub = address::validate_cosmwasm_address(deps.api, &msg.its_hub_address)?;
+    let relayer = address::validate_cosmwasm_address(deps.api, &msg.relayer_address)?;
 
     let xrp_issuer = XRPLAccountId::from_str(XRP_ISSUER).expect("invalid XRP issuer");
     let chain_name_hash = token_id::chain_name_hash(msg.chain_name.clone());
@@ -183,6 +184,7 @@ pub fn instantiate(
         &Config {
             verifier,
             prover,
+            relayer,
             router,
             its_hub,
             its_hub_chain_name: msg.its_hub_chain_name,
@@ -217,9 +219,12 @@ pub fn execute(
 ) -> Result<Response, axelar_wasm_std::error::ContractError> {
     let config = state::load_config(deps.storage);
 
-    match msg.ensure_permissions(deps.storage, &info.sender, |_, _| {
-        Ok::<_, error_stack::Report<Error>>(config.router.clone())
-    })? {
+    match msg.ensure_permissions(
+        deps.storage,
+        &info.sender,
+        |_, _| Ok::<_, error_stack::Report<Error>>(config.router.clone()),
+        |_, _| Ok::<_, error_stack::Report<Error>>(config.relayer.clone()),
+    )? {
         ExecuteMsg::RegisterTokenMetadata { xrpl_token } => {
             let nexus_client: nexus::Client = client::CosmosClient::new(deps.querier).into();
             execute::register_token_metadata(&config, &nexus_client, xrpl_token)
@@ -379,6 +384,7 @@ mod test {
             its_hub_chain_name: "hub".parse().unwrap(),
             chain_name: "chain".parse().unwrap(),
             xrpl_multisig_address: "rNadVFcvGdkGKs4zVGwHXZHC9spkYw7dtu".parse().unwrap(),
+            relayer_address: api.addr_make("relayer").to_string(),
         };
 
         assert_ok!(instantiate(
@@ -403,6 +409,7 @@ mod test {
             mock_env(),
             MigrateMsg {
                 prover_address: api.addr_make("new_prover").to_string(),
+                relayer_address: api.addr_make("new_relayer").to_string(),
             },
         )
         .unwrap();

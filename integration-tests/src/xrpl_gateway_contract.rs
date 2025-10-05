@@ -24,6 +24,7 @@ impl XRPLGatewayContract {
         its_hub_chain_name: ChainName,
         chain_name: ChainName,
         xrpl_multisig_address: XRPLAccountId,
+        relayer_address: Addr,
     ) -> Self {
         let code = ContractWrapper::new_with_empty(
             xrpl_gateway::contract::execute,
@@ -46,6 +47,7 @@ impl XRPLGatewayContract {
                     its_hub_chain_name,
                     chain_name,
                     xrpl_multisig_address,
+                    relayer_address: relayer_address.to_string(),
                 },
                 &[],
                 "xrpl_gateway",

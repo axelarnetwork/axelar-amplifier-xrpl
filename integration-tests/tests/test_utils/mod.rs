@@ -857,12 +857,12 @@ pub fn xrpl_confirm_prover_message(
 pub fn xrpl_claim_gas(
     app: &mut AxelarApp,
     gateway: &XRPLGatewayContract,
-    admin: Addr,
+    relayer: Addr,
     token_id: interchain_token_service::TokenId,
 ) -> cw_multi_test::AppResponse {
     let response = gateway.execute(
         app,
-        admin,
+        relayer,
         &xrpl_gateway::msg::ExecuteMsg::ClaimGas { token_id },
     );
     assert!(response.is_ok());
@@ -1341,7 +1341,8 @@ pub struct AxelarnetChain {
 #[derive(Clone)]
 pub struct XRPLChain {
     pub admin: Addr,
-    pub relayer: XRPLAccountId,
+    pub relayer: Addr,
+    pub relayer_xrpl: XRPLAccountId,
     pub gateway: XRPLGatewayContract,
     pub voting_verifier: XRPLVotingVerifierContract,
     pub multisig_prover: XRPLMultisigProverContract,
@@ -1546,9 +1547,10 @@ pub fn setup_xrpl(
 ) -> XRPLChain {
     let xrpl_chain_name = ChainName::from_str("xrpl").unwrap();
     let xrpl_multisig = XRPLAccountId::from_str("rfEf91bLxrTVC76vw1W3Ur8Jk4Lwujskmb").unwrap();
-    let relayer = XRPLAccountId::from_str("r9m9uUCAwMLSnRryXYuUB3cGXojpRznaAo").unwrap();
+    let xrpl_relayer = XRPLAccountId::from_str("r9m9uUCAwMLSnRryXYuUB3cGXojpRznaAo").unwrap();
 
     let admin = MockApi::default().addr_make(format!("{}_admin", xrpl_chain_name).as_str());
+    let relayer = MockApi::default().addr_make(format!("{}_relayer", xrpl_chain_name).as_str());
 
     let voting_verifier = XRPLVotingVerifierContract::instantiate_contract(
         protocol,
@@ -1578,6 +1580,7 @@ pub fn setup_xrpl(
         axelar_chain_name,
         xrpl_chain_name.clone(),
         xrpl_multisig.clone(),
+        relayer.clone(),
     );
 
     let multisig_prover = XRPLMultisigProverContract::instantiate2_contract(
@@ -1590,7 +1593,7 @@ pub fn setup_xrpl(
         voting_verifier.contract_addr.clone(),
         xrpl_chain_name.clone(),
         xrpl_multisig.clone(),
-        relayer.clone(),
+        xrpl_relayer.clone(),
     );
 
     assert_eq!(multisig_prover.contract_addr, predicted_prover_address);
@@ -1698,6 +1701,7 @@ pub fn setup_xrpl(
     XRPLChain {
         admin,
         relayer,
+        relayer_xrpl: xrpl_relayer,
         gateway,
         voting_verifier,
         multisig_prover,

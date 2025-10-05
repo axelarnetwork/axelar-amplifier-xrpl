@@ -16,6 +16,7 @@ use xrpl_types::types::{XRPLAccountId, XRPLCurrency, XRPLPaymentAmount, XRPLToke
 pub struct Config {
     pub verifier: Addr,
     pub prover: Addr,
+    pub relayer: Addr,
     pub router: Addr,
     pub its_hub: Addr,
     pub its_hub_chain_name: ChainName,

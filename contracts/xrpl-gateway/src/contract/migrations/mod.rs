@@ -30,16 +30,18 @@ pub fn migrate_config(
     let config = OLD_CONFIG.load(storage)?;
 
     let prover = address::validate_cosmwasm_address(api, msg.prover_address.as_str())?;
+    let relayer = address::validate_cosmwasm_address(api, msg.relayer_address.as_str())?;
 
     let new_config = state::Config {
         verifier: config.verifier,
+        prover,
+        relayer,
         router: config.router,
         its_hub: config.its_hub,
         its_hub_chain_name: config.its_hub_chain_name,
         chain_name: config.chain_name,
         xrpl_multisig: config.xrpl_multisig,
         xrp_token_id: config.xrp_token_id,
-        prover,
     };
 
     OLD_CONFIG.remove(storage);

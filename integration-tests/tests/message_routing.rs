@@ -1083,7 +1083,7 @@ fn xrpl_gas_claim_creates_proof() {
     let claim_gas_response = test_utils::xrpl_claim_gas(
         &mut protocol.app,
         &xrpl.gateway,
-        xrpl.admin.clone(),
+        xrpl.relayer.clone(),
         token_id,
     );
 
@@ -1097,7 +1097,7 @@ fn xrpl_gas_claim_creates_proof() {
                 .try_into()
                 .unwrap(),
             token_id,
-            destination_address: xrpl.relayer,
+            destination_address: xrpl.relayer_xrpl,
             amount: gas_amount,
         }
         .into();
@@ -1152,7 +1152,7 @@ fn xrpl_gas_claim_can_be_recovered() {
     test_utils::xrpl_claim_gas(
         &mut protocol.app,
         &xrpl.gateway,
-        xrpl.admin.clone(),
+        xrpl.relayer.clone(),
         token_id,
     );
     assert_eq!(
@@ -1180,7 +1180,7 @@ fn xrpl_gas_claim_can_be_recovered() {
     let gas_claim_response = test_utils::xrpl_claim_gas(
         &mut protocol.app,
         &xrpl.gateway,
-        xrpl.admin.clone(),
+        xrpl.relayer.clone(),
         token_id,
     );
     let gas_claim_confirm_response =
@@ -1202,7 +1202,7 @@ fn xrpl_gas_claim_can_be_recovered() {
                 .try_into()
                 .unwrap(),
             token_id,
-            destination_address: xrpl.relayer.clone(),
+            destination_address: xrpl.relayer_xrpl.clone(),
             amount: gas_claim_amount,
         }
         .into();
@@ -1241,7 +1241,7 @@ fn xrpl_parallel_gas_claims_accumulate_if_second_wins_race() {
     test_utils::xrpl_claim_gas(
         &mut protocol.app,
         &xrpl.gateway,
-        xrpl.admin.clone(),
+        xrpl.relayer.clone(),
         token_id,
     );
     assert_eq!(
@@ -1270,7 +1270,7 @@ fn xrpl_parallel_gas_claims_accumulate_if_second_wins_race() {
     let second_response = test_utils::xrpl_claim_gas(
         &mut protocol.app,
         &xrpl.gateway,
-        xrpl.admin.clone(),
+        xrpl.relayer.clone(),
         token_id,
     );
     assert_eq!(
@@ -1301,7 +1301,7 @@ fn xrpl_parallel_gas_claims_accumulate_if_second_wins_race() {
                 .try_into()
                 .unwrap(),
             token_id,
-            destination_address: xrpl.relayer.clone(),
+            destination_address: xrpl.relayer_xrpl.clone(),
             amount: total_claim_amount,
         }
         .into();
@@ -1340,7 +1340,7 @@ fn xrpl_parallel_gas_claims_allow_recovery_if_first_wins_race() {
     let first_response = test_utils::xrpl_claim_gas(
         &mut protocol.app,
         &xrpl.gateway,
-        xrpl.admin.clone(),
+        xrpl.relayer.clone(),
         token_id,
     );
     assert_eq!(
@@ -1369,7 +1369,7 @@ fn xrpl_parallel_gas_claims_allow_recovery_if_first_wins_race() {
     test_utils::xrpl_claim_gas(
         &mut protocol.app,
         &xrpl.gateway,
-        xrpl.admin.clone(),
+        xrpl.relayer.clone(),
         token_id,
     );
     assert_eq!(
@@ -1400,7 +1400,7 @@ fn xrpl_parallel_gas_claims_allow_recovery_if_first_wins_race() {
                 .try_into()
                 .unwrap(),
             token_id,
-            destination_address: xrpl.relayer.clone(),
+            destination_address: xrpl.relayer_xrpl.clone(),
             amount: first_claim_amount,
         }
         .into();
@@ -1414,7 +1414,7 @@ fn xrpl_parallel_gas_claims_allow_recovery_if_first_wins_race() {
     let remaining_response = test_utils::xrpl_claim_gas(
         &mut protocol.app,
         &xrpl.gateway,
-        xrpl.admin.clone(),
+        xrpl.relayer.clone(),
         token_id,
     );
     assert_eq!(
@@ -1444,7 +1444,7 @@ fn xrpl_parallel_gas_claims_allow_recovery_if_first_wins_race() {
                 .try_into()
                 .unwrap(),
             token_id,
-            destination_address: xrpl.relayer.clone(),
+            destination_address: xrpl.relayer_xrpl.clone(),
             amount: second_claim_amount,
         }
         .into();

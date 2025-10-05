@@ -51,6 +51,7 @@ fn instantiate_works() {
             chain_name: ChainName::from_str("xrpl").unwrap(),
             xrpl_multisig_address: XRPLAccountId::from_str("raNVNWvhUQzFkDDTdEw3roXRJfMJFVJuQo")
                 .unwrap(),
+            relayer_address: api.addr_make("relayer").into_string(),
         },
     );
 
@@ -784,6 +785,7 @@ fn instantiate_contract(
             chain_name: ChainName::from_str("xrpl").unwrap(),
             xrpl_multisig_address: XRPLAccountId::from_str("raNVNWvhUQzFkDDTdEw3roXRJfMJFVJuQo")
                 .unwrap(),
+            relayer_address: api.addr_make("relayer").into_string(),
         }
         .clone(),
     );

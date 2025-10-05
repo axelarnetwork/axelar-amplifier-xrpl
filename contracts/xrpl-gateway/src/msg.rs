@@ -38,6 +38,8 @@ pub struct InstantiateMsg {
     #[serde(with = "xrpl_account_id_string")]
     #[schemars(with = "String")] // necessary attribute in conjunction with #[serde(with ...)]
     pub xrpl_multisig_address: XRPLAccountId,
+    /// Address that can trigger gas claims.
+    pub relayer_address: String,
 }
 
 #[cw_serde]
@@ -127,7 +129,7 @@ pub enum ExecuteMsg {
     DisableExecution,
 
     /// Claim gas fees accrued for a specific token.
-    #[permission(Elevated)]
+    #[permission(Elevated, Specific(relayer))]
     ClaimGas { token_id: TokenId },
 }
 
@@ -196,4 +198,6 @@ pub enum QueryMsg {
 pub struct MigrateMsg {
     /// Address of the XRPL multisig prover contract on axelar.
     pub prover_address: String,
+    /// Axelar address authorized to trigger gas claims.
+    pub relayer_address: String,
 }
