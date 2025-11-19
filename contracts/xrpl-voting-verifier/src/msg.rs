@@ -11,7 +11,7 @@ pub struct InstantiateMsg {
     /// Address that can execute all messages that either have unrestricted or admin permission level.
     /// Should be set to a trusted address that can react to unexpected interruptions to the contract's operation.
     pub admin_address: nonempty::String,
-    /// Address that can call all messages of unrestricted governance permission level, like UpdateVotingThreshold.
+    /// Address that can call all messages of unrestricted governance permission level, like UpdateVotingParameters.
     /// It can execute messages that bypasses verification checks to rescue the contract if it got into an otherwise unrecoverable state due to external forces.
     /// On mainnet it should match the address of the Cosmos governance module.
     pub governance_address: nonempty::String,
@@ -53,10 +53,21 @@ pub enum ExecuteMsg {
     #[permission(Any)]
     VerifyMessages(Vec<XRPLMessage>),
 
-    // Update the threshold used for new polls. Callable only by governance
+    /// Update voting parameters. Callable only by governance.
+    /// Each parameter is optional - `None` values keep the current configuration unchanged.
+    /// This allows updating parameters individually or in combination.
     #[permission(Governance)]
-    UpdateVotingThreshold {
-        new_voting_threshold: MajorityThreshold,
+    UpdateVotingParameters {
+        /// Minimum fraction of total verifier weight required to reach consensus on a poll.
+        /// `None` keeps current threshold.
+        voting_threshold: Option<MajorityThreshold>,
+        /// Number of blocks after which a poll expires if consensus is not reached.
+        /// `None` keeps current block expiry.
+        block_expiry: Option<nonempty::Uint64>,
+        /// Minimum block depth required on the source chain for message verification
+        /// when not using a finality flag to determine confirmation.
+        /// `None` keeps current confirmation height.
+        confirmation_height: Option<u32>,
     },
 
     // Engages execution killswitch.
@@ -92,8 +103,15 @@ pub enum QueryMsg {
     #[returns(Vec<MessageStatus>)]
     MessagesStatus(Vec<XRPLMessage>),
 
-    #[returns(MajorityThreshold)]
-    CurrentThreshold,
+    #[returns(VotingParameters)]
+    VotingParameters,
+}
+
+#[cw_serde]
+pub struct VotingParameters {
+    pub voting_threshold: MajorityThreshold,
+    pub block_expiry: nonempty::Uint64,
+    pub confirmation_height: u32,
 }
 
 #[cw_serde]

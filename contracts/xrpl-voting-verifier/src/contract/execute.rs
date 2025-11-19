@@ -3,7 +3,8 @@ use std::collections::HashMap;
 use axelar_wasm_std::utils::TryMapExt;
 use axelar_wasm_std::voting::{PollId, PollResults, Vote, WeightedPoll};
 use axelar_wasm_std::{
-    address, killswitch, permission_control, snapshot, MajorityThreshold, VerificationStatus,
+    address, killswitch, nonempty, permission_control, snapshot, MajorityThreshold,
+    VerificationStatus,
 };
 use cosmwasm_std::{
     to_json_binary, Deps, DepsMut, Env, Event, MessageInfo, OverflowError, OverflowOperation,
@@ -19,15 +20,21 @@ use crate::error::ContractError;
 use crate::events::{self, PollEnded, PollMetadata, PollStarted, QuorumReached, Voted};
 use crate::state::{self, poll_messages, Poll, CONFIG, POLLS, POLL_ID, VOTES};
 
-pub fn update_voting_threshold(
+pub fn update_voting_parameters(
     deps: DepsMut,
-    new_voting_threshold: MajorityThreshold,
+    voting_threshold: Option<MajorityThreshold>,
+    block_expiry: Option<nonempty::Uint64>,
+    confirmation_height: Option<u32>,
 ) -> Result<Response, ContractError> {
     CONFIG
         .update(
             deps.storage,
             |mut config| -> Result<_, cosmwasm_std::StdError> {
-                config.voting_threshold = new_voting_threshold;
+                config.voting_threshold = voting_threshold.unwrap_or(config.voting_threshold);
+                config.block_expiry = block_expiry.unwrap_or(config.block_expiry);
+                config.confirmation_height =
+                    confirmation_height.unwrap_or(config.confirmation_height);
+
                 Ok(config)
             },
         )

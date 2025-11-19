@@ -1,6 +1,6 @@
 use axelar_wasm_std::vec::VecExt;
 use axelar_wasm_std::voting::{PollId, Vote};
-use axelar_wasm_std::MajorityThreshold;
+use axelar_wasm_std::{nonempty, MajorityThreshold};
 use cosmwasm_std::CosmosMsg;
 use error_stack::ResultExt;
 use xrpl_types::msg::XRPLMessage;
@@ -11,8 +11,8 @@ type Result<T> = error_stack::Result<T, Error>;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("failed to query xrpl voting verifier for current voting threshold")]
-    CurrentThreshold,
+    #[error("failed to query xrpl voting verifier for voting parameters")]
+    VotingParameters,
     #[error("failed to query xrpl voting verifier for messages status. messages: {0:?}")]
     MessagesStatus(Vec<XRPLMessage>),
     #[error("failed to query xrpl voting verifier for poll. poll_id: {0}")]
@@ -24,7 +24,7 @@ impl From<QueryMsg> for Error {
         match value {
             QueryMsg::MessagesStatus(messages) => Error::MessagesStatus(messages),
             QueryMsg::Poll { poll_id } => Error::Poll(poll_id),
-            QueryMsg::CurrentThreshold => Error::CurrentThreshold,
+            QueryMsg::VotingParameters => Error::VotingParameters,
         }
     }
 }
@@ -54,9 +54,16 @@ impl Client<'_> {
         self.client.execute(&ExecuteMsg::EndPoll { poll_id })
     }
 
-    pub fn update_voting_threshold(&self, new_voting_threshold: MajorityThreshold) -> CosmosMsg {
-        self.client.execute(&ExecuteMsg::UpdateVotingThreshold {
-            new_voting_threshold,
+    pub fn update_voting_parameters(
+        &self,
+        voting_threshold: Option<MajorityThreshold>,
+        block_expiry: Option<nonempty::Uint64>,
+        confirmation_height: Option<u32>,
+    ) -> CosmosMsg {
+        self.client.execute(&ExecuteMsg::UpdateVotingParameters {
+            voting_threshold,
+            block_expiry,
+            confirmation_height,
         })
     }
 
@@ -75,14 +82,15 @@ impl Client<'_> {
         }
     }
 
-    pub fn current_threshold(&self) -> Result<MajorityThreshold> {
-        let msg = QueryMsg::CurrentThreshold;
+    pub fn voting_parameters(&self) -> Result<crate::msg::VotingParameters> {
+        let msg = QueryMsg::VotingParameters;
         self.client.query(&msg).change_context_lazy(|| msg.into())
     }
 }
 
 #[cfg(test)]
 mod test {
+    use assert_ok::assert_ok;
     use axelar_wasm_std::msg_id::HexTxHash;
     use axelar_wasm_std::{nonempty, Threshold, VerificationStatus};
     use cosmwasm_std::testing::{message_info, mock_dependencies, mock_env, MockApi, MockQuerier};
@@ -145,14 +153,19 @@ mod test {
     }
 
     #[test]
-    fn query_current_threshold() {
+    fn query_voting_parameters() {
         let (querier, instantiate_msg, addr) = setup();
         let client: Client =
             client::ContractClient::new(QuerierWrapper::new(&querier), &addr).into();
 
+        let params = client.voting_parameters();
+        assert_ok!(&params);
+        let params = params.unwrap();
+        assert_eq!(params.voting_threshold, instantiate_msg.voting_threshold);
+        assert_eq!(params.block_expiry, instantiate_msg.block_expiry);
         assert_eq!(
-            client.current_threshold().unwrap(),
-            instantiate_msg.voting_threshold
+            params.confirmation_height,
+            instantiate_msg.confirmation_height
         );
     }
 
@@ -189,11 +202,11 @@ mod test {
     }
 
     #[test]
-    fn query_current_threshold_returns_error_when_query_fails() {
+    fn query_voting_parameters_returns_error_when_query_fails() {
         let (querier, addr) = setup_queries_to_fail();
         let client: Client =
             client::ContractClient::new(QuerierWrapper::new(&querier), &addr).into();
-        let res = client.current_threshold();
+        let res = client.voting_parameters();
 
         assert!(res.is_err());
         goldie::assert!(res.unwrap_err().to_string());
