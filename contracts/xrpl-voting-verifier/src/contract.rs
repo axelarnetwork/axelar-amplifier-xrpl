@@ -120,6 +120,7 @@ pub fn migrate(
 #[cfg(test)]
 mod test {
     use assert_ok::assert_ok;
+    use axelar_wasm_std::err_contains;
     use axelar_wasm_std::msg_id::HexTxHash;
     use axelar_wasm_std::nonempty::Uint128;
     use axelar_wasm_std::voting::Vote;
@@ -983,7 +984,7 @@ mod test {
         assert!(err_contains!(
             err.report,
             axelar_wasm_std::permission_control::Error,
-            axelar_wasm_std::permission_control::Error::GeneralPermissionDenied { .. }
+            axelar_wasm_std::permission_control::Error::PermissionDenied { .. }
         ));
     }
 
