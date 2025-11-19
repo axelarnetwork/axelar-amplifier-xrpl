@@ -120,11 +120,12 @@ pub fn migrate(
 #[cfg(test)]
 mod test {
     use assert_ok::assert_ok;
-    use axelar_wasm_std::err_contains;
     use axelar_wasm_std::msg_id::HexTxHash;
     use axelar_wasm_std::nonempty::Uint128;
     use axelar_wasm_std::voting::Vote;
-    use axelar_wasm_std::{nonempty, MajorityThreshold, Threshold, VerificationStatus};
+    use axelar_wasm_std::{
+        err_contains, nonempty, MajorityThreshold, Threshold, VerificationStatus,
+    };
     use cosmwasm_std::testing::{
         message_info, mock_dependencies, mock_env, MockApi, MockQuerier, MockStorage,
     };
