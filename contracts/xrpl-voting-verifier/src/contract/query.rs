@@ -1,18 +1,23 @@
 use axelar_wasm_std::voting::{PollId, PollStatus, Vote};
-use axelar_wasm_std::{MajorityThreshold, VerificationStatus};
+use axelar_wasm_std::VerificationStatus;
 use cosmwasm_std::{Deps, Storage};
 use error_stack::{Result, ResultExt};
 use xrpl_types::msg::XRPLMessage;
 
 use crate::error::ContractError;
-use crate::msg::{MessageStatus, PollData, PollResponse};
+use crate::msg::{MessageStatus, PollData, PollResponse, VotingParameters};
 use crate::state::{poll_messages, Poll, PollContent, CONFIG, POLLS};
 
-pub fn voting_threshold(deps: Deps) -> Result<MajorityThreshold, ContractError> {
-    Ok(CONFIG
+pub fn voting_parameters(deps: Deps) -> Result<VotingParameters, ContractError> {
+    let config = CONFIG
         .load(deps.storage)
-        .change_context(ContractError::StorageError)?
-        .voting_threshold)
+        .change_context(ContractError::StorageError)?;
+
+    Ok(VotingParameters {
+        voting_threshold: config.voting_threshold,
+        block_expiry: config.block_expiry,
+        confirmation_height: config.confirmation_height,
+    })
 }
 
 pub fn messages_status(

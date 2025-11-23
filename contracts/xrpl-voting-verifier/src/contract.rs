@@ -66,11 +66,15 @@ pub fn execute(
         ExecuteMsg::VerifyMessages(messages) => Ok(execute::verify_messages(deps, env, messages)?),
         ExecuteMsg::Vote { poll_id, votes } => Ok(execute::vote(deps, env, info, poll_id, votes)?),
         ExecuteMsg::EndPoll { poll_id } => Ok(execute::end_poll(deps, env, poll_id)?),
-        ExecuteMsg::UpdateVotingThreshold {
-            new_voting_threshold,
-        } => Ok(execute::update_voting_threshold(
+        ExecuteMsg::UpdateVotingParameters {
+            voting_threshold,
+            block_expiry,
+            confirmation_height,
+        } => Ok(execute::update_voting_parameters(
             deps,
-            new_voting_threshold,
+            voting_threshold,
+            block_expiry,
+            confirmation_height,
         )?),
         ExecuteMsg::DisableExecution => Ok(execute::disable_execution(deps.storage)?),
         ExecuteMsg::EnableExecution => Ok(execute::enable_execution(deps.storage)?),
@@ -95,7 +99,7 @@ pub fn query(
             &messages,
             env.block.height,
         )?),
-        QueryMsg::CurrentThreshold => to_json_binary(&query::voting_threshold(deps)?),
+        QueryMsg::VotingParameters => to_json_binary(&query::voting_parameters(deps)?),
     }?
     .then(Ok)
 }
@@ -119,7 +123,9 @@ mod test {
     use axelar_wasm_std::msg_id::HexTxHash;
     use axelar_wasm_std::nonempty::Uint128;
     use axelar_wasm_std::voting::Vote;
-    use axelar_wasm_std::{nonempty, MajorityThreshold, Threshold, VerificationStatus};
+    use axelar_wasm_std::{
+        err_contains, nonempty, MajorityThreshold, Threshold, VerificationStatus,
+    };
     use cosmwasm_std::testing::{
         message_info, mock_dependencies, mock_env, MockApi, MockQuerier, MockStorage,
     };
@@ -690,11 +696,196 @@ mod test {
     }
 
     #[test]
-    fn should_be_able_to_update_threshold_and_then_query_new_threshold() {
+    fn should_be_able_to_update_voting_parameters() {
         let verifiers = verifiers(2);
         let mut deps = setup(verifiers.clone());
         let api = deps.api;
 
+        let new_voting_threshold: MajorityThreshold = Threshold::try_from((
+            initial_voting_threshold().numerator().u64() + 1,
+            initial_voting_threshold().denominator().u64() + 1,
+        ))
+        .unwrap()
+        .try_into()
+        .unwrap();
+        let new_block_expiry: nonempty::Uint64 = (POLL_BLOCK_EXPIRY + 50).try_into().unwrap();
+        let new_confirmation_height: u32 = 200;
+
+        execute(
+            deps.as_mut(),
+            mock_env(),
+            message_info(&api.addr_make(GOVERNANCE), &[]),
+            ExecuteMsg::UpdateVotingParameters {
+                voting_threshold: Some(new_voting_threshold),
+                block_expiry: Some(new_block_expiry),
+                confirmation_height: Some(new_confirmation_height),
+            },
+        )
+        .unwrap();
+
+        let res = query(deps.as_ref(), mock_env(), QueryMsg::VotingParameters).unwrap();
+
+        let params: crate::msg::VotingParameters = from_json(res).unwrap();
+        assert_eq!(params.voting_threshold, new_voting_threshold);
+        assert_eq!(params.block_expiry, new_block_expiry);
+        assert_eq!(params.confirmation_height, new_confirmation_height);
+    }
+
+    #[test]
+    #[allow(clippy::arithmetic_side_effects)]
+    fn voting_parameter_changes_should_not_affect_existing_polls() {
+        let verifiers = verifiers(10);
+        let mut deps = setup(verifiers.clone());
+        let api = deps.api;
+
+        // Set explicit initial voting parameters: threshold 8/10, expiry 100 blocks
+        let initial_threshold: MajorityThreshold =
+            Threshold::try_from((8, 10)).unwrap().try_into().unwrap();
+        let initial_block_expiry: nonempty::Uint64 = 100u64.try_into().unwrap();
+
+        execute(
+            deps.as_mut(),
+            mock_env(),
+            message_info(&api.addr_make(GOVERNANCE), &[]),
+            ExecuteMsg::UpdateVotingParameters {
+                voting_threshold: Some(initial_threshold),
+                block_expiry: Some(initial_block_expiry),
+                confirmation_height: None,
+            },
+        )
+        .unwrap();
+
+        let messages = messages(1);
+
+        let poll_start_env = mock_env();
+        let poll_start_height = poll_start_env.block.height;
+
+        // Start poll with initial parameters (threshold 8/10, expiry 100)
+        execute(
+            deps.as_mut(),
+            poll_start_env,
+            message_info(&api.addr_make(SENDER), &[]),
+            ExecuteMsg::VerifyMessages(messages.clone()),
+        )
+        .unwrap();
+
+        // Have 7 out of 10 verifiers vote (below initial 8/10 threshold)
+        verifiers.iter().take(7).for_each(|verifier| {
+            let msg = ExecuteMsg::Vote {
+                poll_id: 1u64.into(),
+                votes: vec![Vote::SucceededOnChain],
+            };
+
+            let res = execute(
+                deps.as_mut(),
+                mock_env(),
+                message_info(&verifier.address, &[]),
+                msg,
+            );
+            assert!(res.is_ok());
+        });
+
+        // Update threshold to 6/10 (lower than current votes)
+        let new_threshold_lower: MajorityThreshold =
+            Threshold::try_from((6, 10)).unwrap().try_into().unwrap();
+
+        execute(
+            deps.as_mut(),
+            mock_env(),
+            message_info(&api.addr_make(GOVERNANCE), &[]),
+            ExecuteMsg::UpdateVotingParameters {
+                voting_threshold: Some(new_threshold_lower),
+                block_expiry: None,
+                confirmation_height: None,
+            },
+        )
+        .unwrap();
+
+        // Poll should still be in progress (not completed despite 7 votes > 6/10 new threshold)
+        let poll_response: crate::msg::PollResponse = from_json(
+            query(
+                deps.as_ref(),
+                mock_env(),
+                QueryMsg::Poll {
+                    poll_id: 1u64.into(),
+                },
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            poll_response.status,
+            axelar_wasm_std::voting::PollStatus::InProgress
+        );
+
+        // Update block_expiry to 50 blocks
+        let new_block_expiry: nonempty::Uint64 = 50u64.try_into().unwrap();
+
+        execute(
+            deps.as_mut(),
+            mock_env(),
+            message_info(&api.addr_make(GOVERNANCE), &[]),
+            ExecuteMsg::UpdateVotingParameters {
+                voting_threshold: None,
+                block_expiry: Some(new_block_expiry),
+                confirmation_height: None,
+            },
+        )
+        .unwrap();
+
+        // Poll should still be in progress after new shorter expiry (50 blocks)
+        let mut env_after_new_expiry = mock_env();
+        env_after_new_expiry.block.height = poll_start_height + 50;
+
+        let poll_response: crate::msg::PollResponse = from_json(
+            query(
+                deps.as_ref(),
+                env_after_new_expiry,
+                QueryMsg::Poll {
+                    poll_id: 1u64.into(),
+                },
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            poll_response.status,
+            axelar_wasm_std::voting::PollStatus::InProgress
+        );
+
+        // Poll expires at original expiry (100 blocks)
+        let mut env_at_original_expiry = mock_env();
+        env_at_original_expiry.block.height = poll_start_height + 100;
+
+        let statuses: Vec<MessageStatus> = from_json(
+            query(
+                deps.as_ref(),
+                env_at_original_expiry,
+                QueryMsg::MessagesStatus(messages.clone()),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            statuses,
+            vec![MessageStatus::new(
+                messages[0].clone(),
+                VerificationStatus::FailedToVerify
+            )]
+        );
+    }
+
+    #[test]
+    fn update_individual_voting_parameters() {
+        let verifiers = verifiers(2);
+        let mut deps = setup(verifiers.clone());
+        let api = deps.api;
+
+        // Get initial parameters
+        let res = query(deps.as_ref(), mock_env(), QueryMsg::VotingParameters).unwrap();
+        let initial_params: crate::msg::VotingParameters = from_json(res).unwrap();
+
+        // Update only voting_threshold
         let new_voting_threshold: MajorityThreshold = Threshold::try_from((
             initial_voting_threshold().numerator().u64() + 1,
             initial_voting_threshold().denominator().u64() + 1,
@@ -707,188 +898,95 @@ mod test {
             deps.as_mut(),
             mock_env(),
             message_info(&api.addr_make(GOVERNANCE), &[]),
-            ExecuteMsg::UpdateVotingThreshold {
-                new_voting_threshold,
+            ExecuteMsg::UpdateVotingParameters {
+                voting_threshold: Some(new_voting_threshold),
+                block_expiry: None,
+                confirmation_height: None,
             },
         )
         .unwrap();
 
-        let res = query(deps.as_ref(), mock_env(), QueryMsg::CurrentThreshold).unwrap();
+        let res = query(deps.as_ref(), mock_env(), QueryMsg::VotingParameters).unwrap();
+        let params: crate::msg::VotingParameters = from_json(res).unwrap();
+        assert_eq!(params.voting_threshold, new_voting_threshold);
+        assert_eq!(params.block_expiry, initial_params.block_expiry);
+        assert_eq!(
+            params.confirmation_height,
+            initial_params.confirmation_height
+        );
 
-        let threshold: MajorityThreshold = from_json(res).unwrap();
-        assert_eq!(threshold, new_voting_threshold);
-    }
-
-    #[test]
-    fn threshold_changes_should_not_affect_existing_polls() {
-        let verifiers = verifiers(10);
-        let initial_threshold = initial_voting_threshold();
-        let majority = (verifiers.len() as u64 * initial_threshold.numerator().u64())
-            .div_ceil(initial_threshold.denominator().u64());
-
-        let mut deps = setup(verifiers.clone());
-        let api = deps.api;
-
-        let messages = messages(1);
-
-        execute(
-            deps.as_mut(),
-            mock_env(),
-            message_info(&api.addr_make(SENDER), &[]),
-            ExecuteMsg::VerifyMessages(messages.clone()),
-        )
-        .unwrap();
-
-        // simulate a majority of verifiers voting for succeeded on chain
-        verifiers.iter().enumerate().for_each(|(i, verifier)| {
-            if i as u64 >= majority {
-                return;
-            }
-            let msg = ExecuteMsg::Vote {
-                poll_id: 1u64.into(),
-                votes: vec![Vote::SucceededOnChain],
-            };
-
-            let res = execute(
-                deps.as_mut(),
-                mock_env(),
-                message_info(&verifier.address, &[]),
-                msg,
-            );
-            assert!(res.is_ok());
-        });
-
-        // increase the threshold. Not enough verifiers voted to meet the new majority,
-        // but threshold changes should not affect existing polls
-        let new_voting_threshold: MajorityThreshold =
-            Threshold::try_from((majority + 1, verifiers.len() as u64))
-                .unwrap()
-                .try_into()
-                .unwrap();
+        // Update only block_expiry
+        let new_block_expiry: nonempty::Uint64 = (POLL_BLOCK_EXPIRY + 50).try_into().unwrap();
 
         execute(
             deps.as_mut(),
             mock_env(),
             message_info(&api.addr_make(GOVERNANCE), &[]),
-            ExecuteMsg::UpdateVotingThreshold {
-                new_voting_threshold,
+            ExecuteMsg::UpdateVotingParameters {
+                voting_threshold: None,
+                block_expiry: Some(new_block_expiry),
+                confirmation_height: None,
             },
         )
         .unwrap();
 
-        execute(
-            deps.as_mut(),
-            mock_env_expired(),
-            message_info(&api.addr_make(SENDER), &[]),
-            ExecuteMsg::EndPoll {
-                poll_id: 1u64.into(),
-            },
-        )
-        .unwrap();
-
-        let res: Vec<MessageStatus> = from_json(
-            query(
-                deps.as_ref(),
-                mock_env(),
-                QueryMsg::MessagesStatus(messages.clone()),
-            )
-            .unwrap(),
-        )
-        .unwrap();
+        let res = query(deps.as_ref(), mock_env(), QueryMsg::VotingParameters).unwrap();
+        let params: crate::msg::VotingParameters = from_json(res).unwrap();
+        assert_eq!(params.voting_threshold, new_voting_threshold);
+        assert_eq!(params.block_expiry, new_block_expiry);
         assert_eq!(
-            res,
-            vec![MessageStatus::new(
-                messages[0].clone(),
-                VerificationStatus::SucceededOnSourceChain
-            )]
+            params.confirmation_height,
+            initial_params.confirmation_height
         );
-    }
 
-    #[test]
-    fn threshold_changes_should_affect_new_polls() {
-        let verifiers = verifiers(10);
-        let initial_threshold = initial_voting_threshold();
-        let old_majority = (verifiers.len() as u64 * initial_threshold.numerator().u64())
-            .div_ceil(initial_threshold.denominator().u64());
-
-        let mut deps = setup(verifiers.clone());
-        let api = deps.api;
-
-        // increase the threshold prior to starting a poll
-        let new_voting_threshold: MajorityThreshold =
-            Threshold::try_from((old_majority + 1, verifiers.len() as u64))
-                .unwrap()
-                .try_into()
-                .unwrap();
+        // Update only confirmation_height
+        let new_confirmation_height: u32 = 200;
 
         execute(
             deps.as_mut(),
             mock_env(),
             message_info(&api.addr_make(GOVERNANCE), &[]),
-            ExecuteMsg::UpdateVotingThreshold {
-                new_voting_threshold,
+            ExecuteMsg::UpdateVotingParameters {
+                voting_threshold: None,
+                block_expiry: None,
+                confirmation_height: Some(new_confirmation_height),
             },
         )
         .unwrap();
 
-        let messages = messages(1);
+        let res = query(deps.as_ref(), mock_env(), QueryMsg::VotingParameters).unwrap();
+        let params: crate::msg::VotingParameters = from_json(res).unwrap();
+        assert_eq!(params.voting_threshold, new_voting_threshold);
+        assert_eq!(params.block_expiry, new_block_expiry);
+        assert_eq!(params.confirmation_height, new_confirmation_height);
+    }
 
-        // start the poll, should just the new threshold
-        execute(
+    #[test]
+    fn only_governance_can_update_voting_parameters() {
+        let verifiers = verifiers(2);
+        let mut deps = setup(verifiers.clone());
+        let api = deps.api;
+
+        let new_block_expiry: nonempty::Uint64 = (POLL_BLOCK_EXPIRY + 50).try_into().unwrap();
+
+        // Non-governance address should fail
+        let err = execute(
             deps.as_mut(),
             mock_env(),
             message_info(&api.addr_make(SENDER), &[]),
-            ExecuteMsg::VerifyMessages(messages.clone()),
-        )
-        .unwrap();
-
-        // simulate old_majority of verifiers voting succeeded on chain,
-        // which is one less than the updated majority. The messages
-        // should not receive enough votes to be considered verified
-        verifiers.iter().enumerate().for_each(|(i, verifier)| {
-            if i as u64 >= old_majority {
-                return;
-            }
-            let msg = ExecuteMsg::Vote {
-                poll_id: 1u64.into(),
-                votes: vec![Vote::SucceededOnChain],
-            };
-
-            let res = execute(
-                deps.as_mut(),
-                mock_env(),
-                message_info(&verifier.address, &[]),
-                msg,
-            );
-            assert!(res.is_ok());
-        });
-
-        execute(
-            deps.as_mut(),
-            mock_env_expired(),
-            message_info(&api.addr_make(SENDER), &[]),
-            ExecuteMsg::EndPoll {
-                poll_id: 1u64.into(),
+            ExecuteMsg::UpdateVotingParameters {
+                voting_threshold: None,
+                block_expiry: Some(new_block_expiry),
+                confirmation_height: None,
             },
         )
-        .unwrap();
+        .unwrap_err();
 
-        let res: Vec<MessageStatus> = from_json(
-            query(
-                deps.as_ref(),
-                mock_env_expired(),
-                QueryMsg::MessagesStatus(messages.clone()),
-            )
-            .unwrap(),
-        )
-        .unwrap();
-        assert_eq!(
-            res,
-            vec![MessageStatus::new(
-                messages[0].clone(),
-                VerificationStatus::FailedToVerify
-            )]
-        );
+        assert!(err_contains!(
+            err.report,
+            axelar_wasm_std::permission_control::Error,
+            axelar_wasm_std::permission_control::Error::PermissionDenied { .. }
+        ));
     }
 
     #[test]
