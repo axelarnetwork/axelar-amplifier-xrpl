@@ -94,7 +94,7 @@ voting-verifier = { version = "^1.1.0", path = "contracts/voting-verifier" }
 xrpl-gateway = { version = "^1.3.2", path = "contracts/xrpl-gateway" }
 xrpl-multisig-prover = { version = "^1.4.2", path = "contracts/xrpl-multisig-prover" }
 xrpl-types = { git = "https://github.com/commonprefix/axelar-amplifier", branch = "fix/non-unique-unsigned-tx-hash" }
-xrpl-voting-verifier = { version = "^1.3.1", path = "contracts/xrpl-voting-verifier" }
+xrpl-voting-verifier = { version = "^2.0.0", path = "contracts/xrpl-voting-verifier" }
 
 [workspace.lints.clippy]
 arithmetic_side_effects = "deny"
