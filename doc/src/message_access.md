@@ -1,15 +1,22 @@
 # Access Control for Contract Messages
-This module provides access control for contract execute messages. An execute message can be called by:
-- Anyone
-- Only by governance
-- Only by the contract admin
-- Either governance or the contract admin
 
-Only contracts that have at least one execute message with restricted access are included in this module.
+Each execute message in the Amplifier contracts is annotated with a permission scope. The vocabulary is defined by the
+`msgs-derive` macro and a message can have any of the following:
+
+- **`Any`**: anyone can call it. Default for user-facing methods.
+- **`Governance`**: only the configured governance address.
+- **`Admin`**: only the configured admin address.
+- **`Elevated`**: admin **or** governance.
+- **`Specific(role)`**: only an address that holds the named role. Common variants in this codebase: `Specific(gateway)`,
+  `Specific(verifier)`, `Specific(prover)`, `Specific(authorized)`.
+- **`Proxy(role)`**: a single trusted contract may also call this on behalf of the named role. Used today for
+  `Proxy(coordinator)` so the coordinator can register chains/callers on behalf of governance.
+
+Only execute messages with restricted access are listed below. Messages tagged `Any` are omitted.
 
 ## Router
 
-### Governance-Only
+### Governance
 ```rust
 RegisterChain {
     chain: ChainName,
@@ -23,33 +30,39 @@ UpgradeGateway {
 },
 ```
 
-### Admin-Only
+### Elevated
 ```rust
-FreezeChain {
-    chain: ChainName,
-    direction: GatewayDirection,
+FreezeChains {
+    chains: HashMap<ChainName, GatewayDirection>,
 },
 
-UnfreezeChain {
-    chain: ChainName,
-    direction: GatewayDirection,
-}
+UnfreezeChains {
+    chains: HashMap<ChainName, GatewayDirection>,
+},
+
+DisableRouting,
+
+EnableRouting,
 ```
 
+### Specific(gateway)
+Only a registered chain gateway may call this:
+```rust
+RouteMessages(Vec<Message>)
+```
 
-## Verifier
+## Voting Verifier
 
-### Governance-Only
+### Governance
 ```rust
 UpdateVotingThreshold {
     new_voting_threshold: MajorityThreshold,
 }
 ```
 
+## Multisig Prover
 
-## Prover
-
-### Governance-Only
+### Governance
 ```rust
 UpdateSigningThreshold {
     new_signing_threshold: MajorityThreshold,
@@ -60,29 +73,36 @@ UpdateAdmin {
 }
 ```
 
-### Admin or Governance
+### Elevated
 ```rust
 UpdateVerifierSet
 ```
 
-
 ## Multisig
 
-### Governance-Only
+### Governance
 ```rust
-AuthorizeCaller {
-    contract_address: Addr,
-},
-
-UnauthorizeCaller {
-    contract_address: Addr,
+AuthorizeCallers {
+    contracts: HashMap<String, ChainName>,
 }
 ```
 
-### Authorized Caller Only
-Authorized caller is any contract that is previously authorized from governance by calling `AuthorizeCaller`. 
+### Elevated
 ```rust
-StartSigningSession { // Can only be called by an authorized contract
+UnauthorizeCallers {
+    contracts: HashMap<String, ChainName>,
+},
+
+DisableSigning,
+
+EnableSigning,
+```
+
+### Specific(authorized)
+Only a contract previously authorized via `AuthorizeCallers` may call this, and only for the chain name it was
+authorized for:
+```rust
+StartSigningSession {
     verifier_set_id: String,
     msg: HexBinary,
     chain_name: ChainName,
@@ -90,20 +110,24 @@ StartSigningSession { // Can only be called by an authorized contract
 }
 ```
 
-
 ## Service Registry
 
-### Governance-Only
+### Governance
 ```rust
 RegisterService {
     service_name: String,
-    coordinator_contract: Addr,
+    coordinator_contract: String,
     min_num_verifiers: u16,
     max_num_verifiers: Option<u16>,
-    min_verifier_bond: Uint128,
+    min_verifier_bond: nonempty::Uint128,
     bond_denom: String,
-    unbonding_period_days: u16, 
+    unbonding_period_days: u16,
     description: String,
+},
+
+UpdateService {
+    service_name: String,
+    updated_service_params: UpdatedServiceParams,
 },
 
 AuthorizeVerifiers {
@@ -122,13 +146,44 @@ JailVerifiers {
 }
 ```
 
+### Specific(verifier)
+Called by the verifier address itself:
+```rust
+RegisterChainSupport {
+    service_name: String,
+    chains: Vec<ChainName>,
+},
+
+DeregisterChainSupport {
+    service_name: String,
+    chains: Vec<ChainName>,
+}
+```
 
 ## Coordinator
 
-### Governance-Only
+### Governance
 ```rust
 RegisterProverContract {
     chain_name: ChainName,
-    new_prover_addr: Addr,
+    new_prover_addr: String,
 }
+```
+
+### Specific(prover)
+Only a prover address that was previously registered via `RegisterProverContract` may call this, and only with respect
+to the chain it was registered for:
+```rust
+SetActiveVerifiers {
+    verifiers: HashSet<String>,
+}
+```
+
+## Rewards
+
+### Governance
+```rust
+UpdatePoolParams { params: Params, pool_id: PoolId },
+
+CreatePool { params: Params, pool_id: PoolId },
 ```

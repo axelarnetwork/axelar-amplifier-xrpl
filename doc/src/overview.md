@@ -1,9 +1,13 @@
-# Message Semantics
+# High Level Amplifier Protocol Overview
+
+This page is a general overview of how the Axelar Amplifier protocol works. The specific implementation can differ per chain.
+
+## Message Semantics
 
 Structure of a routing packet (`M` in the diagrams)
 
 ```rust
-    struct Message {
+struct Message {
     cc_id: CrossChainId,
     source_address: Address,
     // String
@@ -29,16 +33,14 @@ flowchart TD
 subgraph Axelar
 	G1{"Gateway"}
     G2{"Gateway"}
-	Vr{"Aggregate Verifier"}
 	Vo{"Voting verifier"}
 	R{"Router"}
     S{"Service Registry"}
 end
 
 Relayer --"VerifyMessages([M1,M2])"-->G1
-G1 --"VerifyMessages([M1,M2])"--> Vr
-Vr --"VerifyMessages([M1,M2])"--> Vo
-Vo --"GetActiveVerifiers"--> S
+G1 --"VerifyMessages([M1,M2])"--> Vo
+Vo --"ActiveVerifiers"--> S
 Verifiers --"Vote(poll_id, votes)"--> Vo
 
 Relayer --"RouteMessages([M1,M2])"-->G1
@@ -58,12 +60,12 @@ subgraph Axelar
 end
 
 Relayer --"ConstructProof([M1.id,M2.id])"-->P
-P --"GetMessages([M1.id,M2.id])"-->G2
-P --"GetActiveVerifiers"-->S
+P --"OutgoingMessages([M1.id,M2.id])"-->G2
+P --"ActiveVerifiers"-->S
 P --"StartSigningSession(verifier_set_id, payload_hash)"-->M
 Verifiers --"SubmitSignature(session_id, signature)"-->M
-Relayer --"GetProof(multisig_session_id)" --> P
-P --"GetSigningSession(session_id)"-->M
+Relayer --"Proof(multisig_session_id)" --> P
+P --"Multisig(session_id)"-->M
 ```
 
 # Event Flow
@@ -81,32 +83,27 @@ sequenceDiagram
     participant Relayer
     box LightYellow Protocol
     participant IncomingGateway
-    participant Router
-    participant Verifier
     participant Prover
     participant Voting Verifier
     participant Service Registry
+    participant Router
     end
-    participant Verifier
+    participant Verifiers (ampd)
     Relayer->>IncomingGateway: VerifyMessages([M1,M2])
-    IncomingGateway->>Verifier: VerifyMessages([M1,M2])
-    Verifier->>Voting Verifier: VerifyMessages([M1,M2])
-    Voting Verifier->>Service Registry: GetActiveVerifiers
-    Voting Verifier->>Verifier: emit PollStarted
-    Voting Verifier-->>Verifier: [(M1.id,false),(M2.id,false)]
-    Verifier-->>IncomingGateway: [(M1.id,false),(M2.id, false)]
+    IncomingGateway->>Voting Verifier: VerifyMessages([M1,M2])
+    Voting Verifier->>Service Registry: ActiveVerifiers
+    Voting Verifier->>Verifiers (ampd): emit PollStarted
+    Voting Verifier-->>IncomingGateway: [(M1.id,false),(M2.id, false)]
     IncomingGateway-->>Relayer: [(M1.id,false),(M2.id, false)]
-    Verifier->>Voting Verifier: Vote
-    Verifier->>Voting Verifier: Vote
-    Verifier->>Voting Verifier: EndPoll
+    Verifiers (ampd)->>Voting Verifier: Vote
+    Verifiers (ampd)->>Voting Verifier: Vote
+    Relayer->>Voting Verifier: EndPoll
 
 
 
     Relayer->>IncomingGateway: RouteMessages([M1,M2])
-    IncomingGateway->>Verifier: IsVerified([M1,M2])
-    Verifier->>Voting Verifier: IsVerified([M1,M2])
-    Voting Verifier->>Verifier: [(M1.id,true),(M2.id,true)]
-    Verifier->>IncomingGateway: [(M1.id,true),(M2.id,true)]
+    IncomingGateway->>Voting Verifier: IsVerified([M1,M2])
+    Voting Verifier->>IncomingGateway: [(M1.id,true),(M2.id,true)]
     IncomingGateway->>Router: RouteMessages([M1,M2])
 
 ```
@@ -120,23 +117,26 @@ sequenceDiagram
     participant OutgoingGateway
     participant Router
     participant Prover
+    participant ChainCodec
     participant Multisig
     end
-    participant Verifier
+    participant Verifiers (ampd)
 
 
     Router->>OutgoingGateway: RouteMessages([M1,M2])
     Relayer->>Prover: ConstructProof([M1.id,M2.id])
-    Prover->>OutgoingGateway: GetMessages([M1,M2])
+    Prover->>OutgoingGateway: OutgoingMessages([M1,M2])
     OutgoingGateway-->>Prover: [M1,M2]
     Prover->>Prover: create payload of [M1,M2]
+    Prover->>ChainCodec: PayloadDigest(payload)
+    ChainCodec-->>Prover: payload hash
     Prover->>Multisig: StartSigningSession(snapshot, payload hash)
     Multisig-->>Prover: multisig_session_id
     Prover-->>Relayer: multisig_session_id
-    Verifier->>Multisig: SubmitSignature(session_id, signature)
-    Verifier->>Multisig: SubmitSignature(session_id, signature)
-    Relayer->>Prover: GetProof(multisig_session_id)
-    Prover->>Multisig: GetSigningSession(session_id)
+    Verifiers (ampd)->>Multisig: SubmitSignature(session_id, signature)
+    Verifiers (ampd)->>Multisig: SubmitSignature(session_id, signature)
+    Relayer->>Prover: Proof(multisig_session_id)
+    Prover->>Multisig: Multisig(session_id)
     Multisig-->>Prover: signing session
     Prover-->>Relayer: signed payload
 
@@ -183,6 +183,13 @@ The prover contract is responsible for constructing proofs of routed messages, t
 common example of this is the [`multisig-prover`](contracts/multisig_prover.md) that constructs signed payload of routed
 messages, which are then relayed (permissionlessly) to an external chain. In this example, the prover fetches the
 messages from the gateway, and interacts with the multisig contract to conduct the signing.
+
+### Chain-Codec
+
+The [chain-codec](https://github.com/axelarnetwork/axelar-amplifier/blob/main/doc/src/contracts/chain_codec.md) contract abstracts away chain-specific encoding/decoding functionality for a chain, such as encoding proofs, validating addresses, etc.
+It is used internally by the multisig-prover and voting-verifier contracts.
+
+Note: this contract is not used in the XRPL integration, because the XRPL multisig prover is itself XRPL aware. The chain codec link points to the upstream Amplifier documentation.
 
 ### Multisig Contract
 
