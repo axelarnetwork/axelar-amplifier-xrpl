@@ -7,7 +7,7 @@ network properties, such as improved security or better delivery and availabilit
 
 ### Documentation
 
-High level documentation and diagrams can be found in the [doc](doc/README.md) directory.
+Documentation and diagrams can be found in the [doc](doc/README.md) directory.
 
 ### Contract Json Schemas
 
@@ -36,22 +36,23 @@ The basic rules are as follows:
   last release for the gateway contract no changes were made in the `contracts/gateway` or `packages/` directory. A new
   release will not bump the version.
 
-### Compatibility
+### Deployed Versions
 
-For the amplifier preview with version numbers < 1.0.0, please refer to the following compatibility table to select
-versions of
-contracts and `ampd` that work well together.
+Latest released versions of the contracts and `ampd` in this fork.
 
-| Binary                                                                         | Version |
-|--------------------------------------------------------------------------------|---------|
-| ampd                                                                           | 0.6.0   |
-| coordinator                                                                    | 0.2.0   |
-| gateway                                                                        | 0.2.3   |
-| multisig-prover                                                                | 0.6.0   |
-| multisig                                                                       | 0.4.1   |
-| rewards                                                                        | 0.4.0   |
-| router                                                                         | 0.4.0   |
-| service-registry                                                               | 0.4.1   |
-| voting-verifier                                                                | 0.5.0   |
-| [tofnd](https://github.com/axelarnetwork/tofnd)                                | 1.0.1   |      
-| [solidity-contracts](https://github.com/axelarnetwork/axelar-gmp-sdk-solidity) | 5.9.0   |
+| Binary                   | Version |
+|--------------------------|---------|
+| ampd                     | 1.4.0   |
+| axelarnet-gateway        | 1.0.0   |
+| coordinator              | 1.1.0   |
+| gateway                  | 1.1.1   |
+| interchain-token-service | 1.1.0   |
+| multisig                 | 1.1.1   |
+| multisig-prover          | 1.1.1   |
+| rewards                  | 1.2.0   |
+| router                   | 1.2.0   |
+| service-registry         | 1.1.0   |
+| voting-verifier          | 1.1.0   |
+| xrpl-gateway             | 1.3.2   |
+| xrpl-voting-verifier     | 2.0.0   |
+| xrpl-multisig-prover     | 1.4.2   |

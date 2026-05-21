@@ -29,8 +29,3 @@ To open the book in your browser run:
 ```bash
 mdbook serve doc --open
 ```
-
-## Contributing
-
-Information about how to contribute to the documentation can be found in the documentation
-chapter [here](src/contributing/documentation.md)
