@@ -139,28 +139,6 @@ pub enum ProofStatus {
 }
 ```
 
-## Proof construction graph
-
-```mermaid
-graph TD
-
-Relayer
-subgraph Axelar
-    XMP[xrpl-multisig-prover]
-    XGW[xrpl-gateway]
-    MS[Multisig contract]
-end
-Signers
-
-Relayer -- ConstructProof --> XMP
-XMP -- OutgoingMessages --> XGW
-XGW -.-> XMP
-XMP -- StartSigningSession --> MS
-Signers -- SubmitSignature --> MS
-Relayer -- Proof query --> XMP
-XMP -- Multisig query --> MS
-```
-
 ## Proof construction sequence
 
 ```mermaid

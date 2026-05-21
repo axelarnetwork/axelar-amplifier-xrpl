@@ -1,5 +1,7 @@
 # Gateway
 
+> **Not used on the XRPL side.** XRPL traffic uses the [XRPL Gateway](xrpl_gateway.md), which absorbs the gateway role plus the ITS edge, the token-id registry, and gas accounting (responsibilities that on other chains live in separate contracts). The generic `gateway` contract documented here is the template deployed for every other connected chain, so a cross-chain message from XRPL to, say, XRPL-EVM still passes through XRPL-EVM's generic gateway on the destination side.
+
 The name `gateway` used in this documentation refers to those entities which reside
 on axelar chain, which can also be called internal gateways. On the other hand we have
 external gateways, which are gateways deployed on external chains connected to Axelar.

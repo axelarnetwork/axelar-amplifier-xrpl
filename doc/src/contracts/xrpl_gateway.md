@@ -2,7 +2,7 @@
 
 Source: [`contracts/xrpl-gateway`](https://github.com/axelarnetwork/axelar-amplifier-xrpl/tree/main/contracts/xrpl-gateway).
 
-The XRPL Gateway is the Axelar-side entry and exit point for all XRPL traffic. On other Amplifier chains a thin "gateway" contract simply moves verified messages between a voting verifier and the router; on XRPL the gateway is overloaded and also absorbs the [ITS edge](../glossary.md#its-edge) role, the token-id registry, and the gas accounting that on other chains lives in separate contracts. This is because XRPL has no smart contracts at all: every responsibility that would normally be on the external chain has to land somewhere on Axelar, and the gateway is the natural home for it.
+The XRPL Gateway is the Axelar-side entry and exit point for all XRPL traffic. On other Amplifier chains a thin "gateway" contract simply moves verified messages between a voting verifier and the router; on XRPL the gateway is overloaded and also absorbs the [ITS edge](../glossary.md#its-edge) role, the token-id registry, and the gas accounting that on other chains lives in separate contracts. However, since XRPL has no smart contracts, every responsibility that would normally be on the external chain now lives on Axelar.
 
 ## What XRPL-specific work this contract absorbs compared to the generic gateway
 
@@ -113,7 +113,7 @@ pub enum QueryMsg {
 }
 ```
 
-## The five XRPL message variants
+## XRPL message variants
 
 The gateway accepts a single enum `XRPLMessage` (defined in upstream [`packages/xrpl-types`](https://github.com/axelarnetwork/axelar-amplifier/blob/main/packages/xrpl-types/src/msg.rs)) with five variants:
 
@@ -126,30 +126,6 @@ The gateway accepts a single enum `XRPLMessage` (defined in upstream [`packages/
 | `ProverMessage` | Outbound from the multisig | Reports that a prover-built XRPL transaction has landed on the ledger. Confirmed by the multisig prover. |
 
 The gateway is the verification entry point for **all five** variants (via `VerifyMessages`), but only handles `InterchainTransferMessage`, `CallContractMessage`, and `AddGasMessage` in its routing/confirmation logic. `AddReservesMessage` and `ProverMessage` are confirmed by the [XRPL Multisig Prover](xrpl_multisig_prover.md).
-
-## XRPL Gateway graph
-
-```mermaid
-flowchart TD
-subgraph Axelar
-    XGW[xrpl-gateway]
-    XVV[xrpl-voting-verifier]
-    Router
-    ANG[Axelarnet Gateway]
-    Hub[ITS Hub]
-end
-Relayer
-XMP[xrpl-multisig-prover]
-
-Relayer -- VerifyMessages --> XGW
-Relayer -- RouteIncomingMessages --> XGW
-Relayer -- ConfirmAddGasMessages --> XGW
-XGW -- VerifyMessages --> XVV
-XGW -- query destination decimals --> Hub
-XGW -- route Message --> Router
-Router -- RouteMessages (outbound) --> XGW
-XMP -- OutgoingMessages query --> XGW
-```
 
 ## Routing graph: inbound XRPL message
 
@@ -178,13 +154,14 @@ XGW->>Router: RouteMessages via Hub
 Note over XGW: CallContractMessage path
 XGW->>XGW: build plain Message, no Hub wrap
 XGW->>Router: RouteMessages direct GMP
+Relayer->>XGW: ConfirmAddGasMessages
 Note over XGW: AddGasMessage path
 XGW->>XGW: credit accrued gas for the token id
 ```
 
 1. The relayer submits an `XRPLMessage` for verification.
 2. The gateway forwards to the [XRPL Voting Verifier](xrpl_voting_verifier.md), which opens a poll.
-3. After quorum is reached the relayer calls `RouteIncomingMessages`.
+3. After quorum is reached the relayer triggers the appropriate follow-up entry point. `InterchainTransferMessage` and `CallContractMessage` are routed via `RouteIncomingMessages`; `AddGasMessage` is confirmed via the separate `ConfirmAddGasMessages` entry point.
 4. For `InterchainTransferMessage`, the gateway acts as the ITS edge: looks up the token id, queries the ITS Hub for destination decimals, scales the amount, wraps the inner ITS message as `HubMessage::SendToHub(InterchainTransfer)`, and hands it to the router.
 5. For `CallContractMessage`, the gateway builds a plain `router_api::Message` with no Hub wrapping. The router delivers it straight to the destination chain's gateway as a pure GMP call.
 6. For `AddGasMessage`, the gateway credits the verified top-up amount to `GAS_ACCRUED[token_id]`; no router involvement.
@@ -201,9 +178,10 @@ participant XMP as xrpl-multisig-prover
 end
 
 Router->>XGW: RouteMessages
+Note over XGW: gate: source_address must be the ITS Hub
 XGW->>XGW: store in OUTGOING_MESSAGES
 XMP->>XGW: query OutgoingMessages
 XGW-->>XMP: stored Messages
 ```
 
-Messages arriving from the router via `RouteMessages` are not re-verified (the router is trusted) and are stored in the `OUTGOING_MESSAGES` map keyed by `cc_id`. The XRPL Multisig Prover later reads them via the `OutgoingMessages` query when constructing an outbound XRPL Payment.
+Messages arriving from the router via `RouteMessages` are not re-verified (the router is trusted), but the gateway rejects any message whose `source_address` is not the ITS Hub on Axelar. **Only ITS-routed messages can be delivered to XRPL**: pure GMP from another chain destined for XRPL is not supported. Accepted messages are stored in the `OUTGOING_MESSAGES` map keyed by `cc_id`. The XRPL Multisig Prover later reads them via the `OutgoingMessages` query when constructing an outbound XRPL Payment.

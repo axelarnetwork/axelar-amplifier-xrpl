@@ -88,25 +88,6 @@ pub struct MessageStatus {
 }
 ```
 
-## XRPL Voting Verifier graph
-
-```mermaid
-flowchart TD
-subgraph Axelar
-    XGW[xrpl-gateway]
-    XVV[xrpl-voting-verifier]
-    SR[Service Registry]
-    Rewards
-end
-Verifiers
-
-XGW -- "VerifyMessages([XRPLMessage,...])" --> XVV
-XVV -- "ActiveVerifiers" --> SR
-Verifiers -- "Vote(poll_id, votes)" --> XVV
-Verifiers -- "EndPoll(poll_id)" --> XVV
-XVV -- "RecordParticipation (on EndPoll)" --> Rewards
-```
-
 ## Verification sequence
 
 ```mermaid

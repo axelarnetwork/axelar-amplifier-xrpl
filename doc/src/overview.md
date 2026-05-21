@@ -6,7 +6,7 @@ Since XRPL has no smart contracts, the "gateway" on XRPL is a multi sign account
 
 ## High Level Architecture
 
-### Incoming Flow:
+### Incoming Flow
 
 ```mermaid
 flowchart TD
@@ -28,7 +28,7 @@ G1 --"RouteMessages([M1,M2])"-->R
 R --"RouteMessages([M1,M2])"-->G2
 ```
 
-### Outgoing Flow:
+### Outgoing Flow
 
 ```mermaid
 flowchart TD
@@ -84,7 +84,7 @@ The [ITS Hub](https://github.com/axelarnetwork/axelar-amplifier/tree/main/contra
 
 ## Message Semantics
 
-The on-Axelar [xrpl-gateway](contracts/xrpl_gateway.md) accepts an XRPL-native union type, `XRPLMessage`, whose variants capture the five categories of XRPL transaction the bridge cares about. The gateway translates the user-initiated variants into a generic `router_api::Message` before forwarding to the router; the operational/control variants are confirmed in place without ever becoming a `Message`. This shape exists because XRPL has no smart contracts, so there is no `ContractCall`-style event for a relayer to lift directly.
+The on-Axelar [xrpl-gateway](contracts/xrpl_gateway.md) accepts an XRPL-native union type, `XRPLMessage`, whose variants capture the five categories of XRPL transaction the bridge cares about. The gateway translates the user-initiated variants into a generic `router_api::Message` before forwarding to the router; the operational/control variants are confirmed in place without ever becoming a `Message`. In other integrations, a `ContractCall` event would be emitted by the edge chain for a relayer to lift directly, but since we have no smart contracts in XRPL, we use this shape.
 
 The full definition lives in upstream [`packages/xrpl-types/src/msg.rs`](https://github.com/axelarnetwork/axelar-amplifier/blob/main/packages/xrpl-types/src/msg.rs).
 
