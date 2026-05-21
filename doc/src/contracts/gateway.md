@@ -42,7 +42,23 @@ pub struct InstantiateMsg {
     pub verifier_address: String,
     pub router_address: String,
 }
+
+pub enum ExecuteMsg {
+    // Trigger verification at the linked voting verifier for any of the given messages
+    // that is still unverified. Permission: Any.
+    VerifyMessages(Vec<Message>),
+
+    // Forward the given messages to the next step of the routing layer. If the messages
+    // are coming in from an external chain, they must already be verified.
+    // Permission: Any.
+    RouteMessages(Vec<Message>),
+}
+
+pub enum QueryMsg {
+    // Messages stored for delivery to the chain corresponding to this gateway, queried
+    // by the multisig prover during proof construction.
+    OutgoingMessages(Vec<CrossChainId>),
+}
 ```
 
-As you can see, the gateway only needs to know the address of the two contracts it
-works with, which are voting verifier and router.
+The gateway only needs to know the address of the two contracts it works with: the voting verifier and the router.

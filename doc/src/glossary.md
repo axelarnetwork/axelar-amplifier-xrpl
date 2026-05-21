@@ -32,9 +32,6 @@ A transaction field on XRPL that carries arbitrary byte data. Each memo entry ho
 ### Multi sign account
 A regular XRPL account that has had a `SignerListSet` transaction applied to define a list of signers, each with a weight, plus a quorum threshold. Once configured this way (and with the master key disabled), the account can only send transactions that have been signed by enough listed signers to reach the quorum. The bridge gateway is exactly such an account; the signer list mirrors the active Axelar verifier set.
 
-### Partial payment
-See [tfPartialPayment](#tfpartialpayment).
-
 ### Payment
 The XRPL transaction type used to move value, either native XRP between accounts or an IOU between accounts that share a trust line. The bridge uses `Payment` both inbound (the user paying the multi sign account) and outbound (the multi sign account paying the recipient).
 
@@ -150,7 +147,7 @@ An XRPL message variant used for pure general message passing from XRPL. The XRP
 An XRPL message variant used for cross chain token transfers originating on XRPL. The `Payment` carries the transfer amount plus the gas fee, and optional payload.
 
 ### ProverMessage
-An XRPL specific [`XRPLMessage`](#interchaintransfermessage) variant. After the multi sign account submits a prover-built XRPL transaction (a Payment, SignerListSet, TicketCreate, or TrustSet) to the ledger, the relayer reports the inclusion (or failure) of that transaction back to Axelar as a `ProverMessage`. The [xrpl-voting-verifier](contracts/xrpl_voting_verifier.md) opens a poll on it, verifiers look up the XRPL transaction over JSON RPC and vote, and once quorum is reached the relayer calls `ConfirmProverMessage` on the [xrpl-multisig-prover](contracts/xrpl_multisig_prover.md). That call releases the [ticket](#ticket), clears the stored payload, and (for `SignerListSet`) promotes the new verifier set. This is the only mechanism by which the Axelar side learns that an outbound XRPL transaction landed, because XRPL has no contract that could emit an event for it.
+An XRPL specific `XRPLMessage` (the enum defined in upstream [`packages/xrpl-types`](https://github.com/axelarnetwork/axelar-amplifier/blob/main/packages/xrpl-types/src/msg.rs)) variant. After the multi sign account submits a prover-built XRPL transaction (a Payment, SignerListSet, TicketCreate, or TrustSet) to the ledger, the relayer reports the inclusion (or failure) of that transaction back to Axelar as a `ProverMessage`. The [xrpl-voting-verifier](contracts/xrpl_voting_verifier.md) opens a poll on it, verifiers look up the XRPL transaction over JSON RPC and vote, and once quorum is reached the relayer calls `ConfirmProverMessage` on the [xrpl-multisig-prover](contracts/xrpl_multisig_prover.md). That call releases the [ticket](#ticket), clears the stored payload, and (for `SignerListSet`) promotes the new verifier set. This is the only mechanism by which the Axelar side learns that an outbound XRPL transaction landed, because XRPL has no contract that could emit an event for it.
 
 ### Wrapped XRP (wXRP)
 The on chain representation of native XRP on chains other than XRPL. On XRPL EVM in particular, wXRP is an ERC-20 contract minted by the local ITS edge when XRP arrives over the bridge and burned when XRP leaves to be redeemed for native XRP on XRPL. The bridge treats wXRP and native XRP as two representations of the same token id, with the ITS Hub tracking per chain supply.

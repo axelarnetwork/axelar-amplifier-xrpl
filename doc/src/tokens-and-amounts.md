@@ -78,9 +78,9 @@ When the [XRPL Multisig Prover](contracts/xrpl_multisig_prover.md) is delivering
 4. If `exponent < MIN_EXPONENT`, the value rounds to 0 and the result is the canonical zero.
 5. If `exponent > MAX_EXPONENT` or the mantissa cannot be normalized into the window, the operation errors.
 
-Source: [`canonicalize_mantissa` and `canonicalize_token_amount`](https://github.com/axelarnetwork/axelar-amplifier/blob/main/packages/xrpl-types/src/types.rs) in `packages/xrpl-types/src/types.rs`.
+Source: [`canonicalize_mantissa`](https://github.com/axelarnetwork/axelar-amplifier/blob/main/packages/xrpl-types/src/types.rs#L1158) and [`canonicalize_token_amount`](https://github.com/axelarnetwork/axelar-amplifier/blob/main/packages/xrpl-types/src/types.rs#L1207), both in `packages/xrpl-types/src/types.rs`.
 
-For the reverse direction (XRPL inbound, in Flow B), the [XRPL Gateway](contracts/xrpl_gateway.md) calls `scale_to_decimals(amount: XRPLTokenAmount, destination_decimals: u8)` to convert the IOU `(mantissa, exponent)` into a `Uint256` aligned to whatever decimal precision the destination chain registered for the token with the ITS Hub. The same function returns zero if the input mantissa is zero, multiplies by `10^(exponent + destination_decimals)` when the result is integer, and divides otherwise (silently flooring sub-precision dust).
+For the reverse direction (XRPL inbound), the [XRPL Gateway](contracts/xrpl_gateway.md) calls `scale_to_decimals(amount: XRPLTokenAmount, destination_decimals: u8)` to convert the IOU `(mantissa, exponent)` into a `Uint256` aligned to whatever decimal precision the destination chain registered for the token with the ITS Hub. The same function returns zero if the input mantissa is zero, multiplies by `10^(exponent + destination_decimals)` when the result is integer, and divides otherwise (silently flooring sub-precision dust).
 
 ## Currency codes
 
@@ -100,7 +100,7 @@ The bridge enforces these as `XRPLError::ReservedCurrency`. Source: [`XRPLCurren
 
 ## Token IDs
 
-The bridge identifies each cross-chain token with the standard ITS 32-byte [`tokenId`](glossary.md#token-id). On XRPL specifically the gateway maintains three registries (see [XRPL Gateway state](contracts/xrpl_gateway.md#state-of-interest)):
+The bridge identifies each cross-chain token with the standard ITS 32-byte [`tokenId`](glossary.md#token-id). On XRPL specifically the [`xrpl-gateway`](contracts/xrpl_gateway.md) maintains three registries:
 
 | Map | Purpose |
 | --- | --- |
@@ -120,13 +120,6 @@ Across the whole bridge, three categories of tokens can move to and from XRPL:
 | **XRPL-native IOU** (origin = XRPL, issuer ≠ multisig) | IOU `(currency, issuer)` | Multi sign account sends IOU it received on inbound transfers; multisig must have a `TrustSet` to the issuer. | Held in the multi sign account's balance, sent out via `Payment` of that IOU |
 | **Remote-origin token** (origin = another chain) | IOU `(currency, multisig_issuer)` | Multi sign account mints the IOU to the recipient. Recipient must already have a `TrustSet` against the multi sign account for that currency code. | New IOU created on the fly; no external balance needed |
 
-What is **not** supported:
-
-* **NFTs.** Only fungible XRP and fungible IOUs are bridged.
-* **AMM LP tokens.** The bridge does not track or move XRPL AMM positions.
-* **Tokens with the `tfPartialPayment` flag.** Any incoming user payment with that flag set is rejected by the off-chain verifiers; the bridge requires `delivered_amount == Amount` strictly.
-* **Tokens with non-canonical currency codes.** A code that fails both regex tests, that hits the `XRP` reserved value, or that is all zero is rejected at registration time.
-
 ## Trust line setup
 
 XRPL holders track IOU balances via [trust lines](glossary.md#trust-line). Two scenarios apply:
@@ -134,7 +127,7 @@ XRPL holders track IOU balances via [trust lines](glossary.md#trust-line). Two s
 * **For XRPL-native IOUs** (issuer is some external XRPL account), the multi sign account itself must have a `TrustSet` open against the issuer before it can hold the IOU and pay it back out. Operators trigger this by calling `TrustSet { token_id }` on the [XRPL Multisig Prover](contracts/xrpl_multisig_prover.md), which builds and signs an XRPL `TrustSet` transaction.
 * **For remote-origin tokens** (issuer is the multi sign account), the **recipient on XRPL** must have a `TrustSet` open against the multi sign account before any inbound delivery can succeed. Without it the XRPL ledger rejects the `Payment`. This is a user-side requirement; the bridge does not open trust lines on the recipient's behalf.
 
-Each trust line is also an "owned object" on the XRPL ledger and therefore consumes an [owner reserve](glossary.md#reserve) on the holder. For the multi sign account this is the dominant variable cost over time, which is why opening many local IOU trust lines requires topping up the multisig's XRP balance.
+Each trust line is also an "owned object" on the XRPL ledger and therefore consumes an [owner reserve](glossary.md#reserve) on the holder. 
 
 ## Address formats
 
@@ -156,21 +149,3 @@ The ITS Hub tracks per-chain `decimals` for every token in the [`TokenInstance`]
 | Smart-contract chains | Whatever each chain registers (e.g., 18 for most EVM ERC-20s, 6 for USDC variants, 9 for Solana SPL, …) | Defined per token, per chain. |
 
 When a transfer crosses a decimal boundary, the ITS Hub rescales the integer amount before forwarding. For XRPL the actual canonicalization into the mantissa/exponent form (or the truncation into drops) happens at the XRPL Multisig Prover, using the per-chain decimals it queries from the gateway. The reverse direction (XRPL outbound, Flows A and B) is symmetric: the XRPL Gateway queries the destination chain's decimals via the ITS Hub before scaling and wrapping the message.
-
-## Constraints summary
-
-| Constraint | Where enforced |
-| --- | --- |
-| XRP transfer amount ≤ 10<sup>17</sup> drops | XRPL Multisig Prover, `compute_xrpl_amount` |
-| IOU mantissa fits in `[10^15, 10^16 - 1]` after normalization | `canonicalize_mantissa` in `xrpl-types` |
-| IOU exponent fits in `[-96, 80]` | same |
-| Currency code matches 3-char ASCII regex OR 40-char hex regex (not starting with `00`) | `XRPLCurrency::new` |
-| Currency code is not the reserved `XRP` or all-zero value | same |
-| `AddReservesMessage` is XRP-only (no IOU) | XRPL relayer ingestor + XRPL Multisig Prover |
-| Inbound XRPL Payment has `delivered_amount == Amount` and no flags set | off-chain verifiers (ampd XRPL handler) |
-| Inbound XRPL Payment is to the multi sign account | off-chain verifiers |
-| Recipient on XRPL has a `TrustSet` open against the issuer (multi sign account for remote-origin IOUs, or the local issuer for native IOUs) | XRPL ledger rules; not enforced by the bridge contracts |
-| Multi sign account has a `TrustSet` open to a local IOU issuer before it can hold/forward it | Operator-driven via `TrustSet` on the XRPL Multisig Prover |
-| No `payload` on outbound ITS transfer to XRPL (no executable destination) | XRPL Multisig Prover, `construct_payment_proof` |
-
-For the message-level flows that consume all of this, see [Message Flows to and from XRPL](message-flows.md).

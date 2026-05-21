@@ -1,6 +1,6 @@
 # Message Flows to and from XRPL
 
-This document gives a high level walkthrough of what happens when a cross chain message moves from XRPL to another chain connected to Axelar, or from another chain to XRPL. Deeper, per contract documentation lives in the [contracts referenced](#contracts-referenced) section linked at the bottom.
+This document gives a high level walkthrough of what happens when a cross chain message moves from XRPL to another chain connected to Axelar, or from another chain to XRPL. Each on-Axelar contract mentioned below links inline to its per-contract page.
 
 The integration uses the same Axelar Amplifier protocol that other chains plug into, but XRPL has a unique design because it does not have smart contracts. Everything that would normally be done by an on chain "gateway" contract on the external chain is done instead by a single XRPL **multisig account**, controlled by the active Axelar verifier set. So, unlike most other integrations where the chain-specific logic lives on the edge chain contracts, in this case the XRPL-specific logic lives in three CosmWasm contracts deployed on Axelar.
 
@@ -241,29 +241,3 @@ sequenceDiagram
 8. **Confirmation of delivery on Axelar.** Confirmation of an outbound XRPL transaction is implicit. The relayer's subscriber sees the multi sign account's own outbound payment when it next polls, and the relayer reports it back to Axelar by calling `VerifyMessages` on the [`xrpl-gateway`](contracts/xrpl_gateway.md) with a [`ProverMessage`](glossary.md#provermessage) variant. The gateway forwards it to the [`xrpl-voting-verifier`](contracts/xrpl_voting_verifier.md) which opens a poll on this new message; verifiers confirm that the transaction landed on XRPL with the expected unsigned tx hash. Once quorum is reached, the voting verifier emits a `wasm-quorum_reached` event; the [Axelar GMP API](glossary.md#axelar-gmp-api) pushes the corresponding task to the relayer, which responds by calling `ConfirmProverMessage` on the [`xrpl-multisig-prover`](contracts/xrpl_multisig_prover.md). The ticket used by the transaction is released back into the available pool, and the payload is cleared. If the verifiers report `FailedOnChain` instead of `Succeeded`, the ticket is still consumed, but the payload stays stored so it can be retried or the value refunded.
 
 For unfamiliar terms used in this document, see the [glossary](glossary.md).
-
-## Contracts referenced
-
-### XRPL specific (per contract pages to come)
-
-* [`xrpl-gateway`](contracts/xrpl_gateway.md): entry and exit point on Axelar for XRPL traffic, and the ITS edge.
-* [`xrpl-voting-verifier`](contracts/xrpl_voting_verifier.md): stake weighted polls over XRPL transactions, including outbound prover transactions.
-* [`xrpl-multisig-prover`](contracts/xrpl_multisig_prover.md): builds XRPL transactions, manages tickets, the fee reserve, trust lines, and verifier set rotation.
-
-### Generic Amplifier (in this book)
-
-* [`router`](contracts/router.md)
-* [`multisig`](contracts/multisig.md)
-* [`voting-verifier`](contracts/voting_verifier.md) (generic, for context)
-* [`multisig-prover`](contracts/multisig_prover.md) (generic, used by the destination chain in Flows A and B)
-* [`gateway`](contracts/gateway.md) (generic, used by the destination chain in Flows A and B, and by the source chain in Flow C)
-* [`service-registry`](contracts/service_registry.md)
-* [`coordinator`](contracts/coordinator.md)
-* [`rewards`](contracts/rewards.md)
-
-### Generic Amplifier (canonical source upstream)
-
-* [Axelarnet Gateway](https://github.com/axelarnetwork/axelar-amplifier/tree/main/contracts/axelarnet-gateway): the contract that lets Axelar resident contracts (including the ITS Hub) send and receive cross chain messages through the generic router.
-* [ITS Hub](https://github.com/axelarnetwork/axelar-amplifier/tree/main/contracts/interchain-token-service): the chain agnostic router for ITS messages; tracks per chain supply and rescales decimals.
-* [Upstream Amplifier overview](https://github.com/axelarnetwork/axelar-amplifier/blob/main/doc/src/overview.md): for the generic on chain message flow that both legs of every XRPL transfer ride on top of.
-* [ampd](https://github.com/axelarnetwork/axelar-amplifier/tree/main/ampd): the off chain verifier daemon framework, and the [XRPL handler binary](https://github.com/axelarnetwork/axelar-amplifier/tree/main/ampd-handlers/src/bin/xrpl) that plugs into it for XRPL specific verification and signing.

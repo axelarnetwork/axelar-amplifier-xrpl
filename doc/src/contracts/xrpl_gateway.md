@@ -2,11 +2,11 @@
 
 Source: [`contracts/xrpl-gateway`](https://github.com/axelarnetwork/axelar-amplifier-xrpl/tree/main/contracts/xrpl-gateway).
 
-The XRPL Gateway is the Axelar-side entry and exit point for all XRPL traffic. On other Amplifier chains a thin "gateway" contract simply moves verified messages between a voting verifier and the router; on XRPL the gateway is **fat** and also absorbs the [ITS edge](../glossary.md#its-edge) role, the token-id registry, and the gas accounting that on other chains lives in separate contracts. This is because XRPL has no smart contracts at all: every responsibility that would normally be on the external chain has to land somewhere on Axelar, and the gateway is the natural home for it.
+The XRPL Gateway is the Axelar-side entry and exit point for all XRPL traffic. On other Amplifier chains a thin "gateway" contract simply moves verified messages between a voting verifier and the router; on XRPL the gateway is overloaded and also absorbs the [ITS edge](../glossary.md#its-edge) role, the token-id registry, and the gas accounting that on other chains lives in separate contracts. This is because XRPL has no smart contracts at all: every responsibility that would normally be on the external chain has to land somewhere on Axelar, and the gateway is the natural home for it.
 
 ## What XRPL-specific work this contract absorbs compared to the generic gateway
 
-| Concern | Generic [`gateway`](gateway.md) | XRPL Gateway |
+| Concern | Generic Gateway | XRPL Gateway |
 | --- | --- | --- |
 | Verifying incoming messages with the voting verifier | Yes | Yes |
 | Storing outgoing messages for the prover | Yes | Yes |
@@ -115,7 +115,7 @@ pub enum QueryMsg {
 
 ## The five XRPL message variants
 
-The gateway accepts a single enum [`XRPLMessage`](../glossary.md#interchaintransfermessage) (defined in upstream `packages/xrpl-types`):
+The gateway accepts a single enum `XRPLMessage` (defined in upstream [`packages/xrpl-types`](https://github.com/axelarnetwork/axelar-amplifier/blob/main/packages/xrpl-types/src/msg.rs)) with five variants:
 
 | Variant | Direction | Purpose |
 | --- | --- | --- |
@@ -164,23 +164,22 @@ participant Hub as ITS Hub
 participant Router
 end
 
-Relayer->>+XGW: ExecuteMsg::VerifyMessages
-XGW->>+XVV: ExecuteMsg::VerifyMessages
-XVV-->>-XGW: per-message status
-XGW-->>-Relayer: response
-Note over XVV: poll runs; quorum reached
-Relayer->>+XGW: ExecuteMsg::RouteIncomingMessages
-alt InterchainTransferMessage
-    XGW->>+Hub: query destination decimals
-    Hub-->>-XGW: decimals
-    XGW->>XGW: scale amount, wrap as SEND_TO_HUB
-    XGW->>+Router: RouteMessages (Hub-routed)
-else CallContractMessage
-    XGW->>XGW: build plain Message (no Hub wrap)
-    XGW->>+Router: RouteMessages (direct GMP)
-else AddGasMessage
-    XGW->>XGW: credit GAS_ACCRUED[token_id]
-end
+Relayer->>XGW: VerifyMessages
+XGW->>XVV: VerifyMessages
+XVV-->>XGW: per-message status
+XGW-->>Relayer: response
+Note over XVV: poll runs and quorum is reached
+Relayer->>XGW: RouteIncomingMessages
+Note over XGW: InterchainTransferMessage path
+XGW->>Hub: query destination decimals
+Hub-->>XGW: decimals
+XGW->>XGW: scale amount and wrap as SEND_TO_HUB
+XGW->>Router: RouteMessages via Hub
+Note over XGW: CallContractMessage path
+XGW->>XGW: build plain Message, no Hub wrap
+XGW->>Router: RouteMessages direct GMP
+Note over XGW: AddGasMessage path
+XGW->>XGW: credit accrued gas for the token id
 ```
 
 1. The relayer submits an `XRPLMessage` for verification.
@@ -201,19 +200,10 @@ participant XGW as xrpl-gateway
 participant XMP as xrpl-multisig-prover
 end
 
-Router->>+XGW: ExecuteMsg::RouteMessages (RECEIVE_FROM_HUB or plain)
+Router->>XGW: RouteMessages
 XGW->>XGW: store in OUTGOING_MESSAGES
-XMP->>+XGW: QueryMsg::OutgoingMessages(cc_ids)
-XGW-->>-XMP: stored Messages
+XMP->>XGW: query OutgoingMessages
+XGW-->>XMP: stored Messages
 ```
 
 Messages arriving from the router via `RouteMessages` are not re-verified (the router is trusted) and are stored in the `OUTGOING_MESSAGES` map keyed by `cc_id`. The XRPL Multisig Prover later reads them via the `OutgoingMessages` query when constructing an outbound XRPL Payment.
-
-## State of interest
-
-* `OUTGOING_MESSAGES: Map<&CrossChainId, Message>` — messages queued for outbound XRPL delivery.
-* `XRPL_TOKEN_TO_LOCAL_TOKEN_ID: Map<XRPLToken, TokenId>` — token-id registry for XRPL-issued IOUs.
-* `XRPL_CURRENCY_TO_REMOTE_TOKEN_ID: Map<XRPLCurrency, TokenId>` — token-id registry for remote-origin tokens (multisig is the IOU issuer).
-* `TOKEN_ID_TO_XRPL_TOKEN: Map<TokenId, XRPLToken>` — bidirectional lookup.
-* `GAS_ACCRUED: Map<&TokenId, XRPLPaymentAmount>` — running per-token gas tally.
-* `GAS_COUNTED: Map<&Hash, ()>` — dedup set for `ConfirmAddGasMessages`.

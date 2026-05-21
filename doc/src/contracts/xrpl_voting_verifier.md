@@ -6,7 +6,7 @@ The XRPL Voting Verifier runs stake-weighted polls over XRPL transactions. Each 
 
 ## What XRPL-specific work this contract absorbs compared to the generic voting verifier
 
-| Concern | Generic [`voting-verifier`](voting_verifier.md) | XRPL Voting Verifier |
+| Concern | Generic Voting Verifier | XRPL Voting Verifier |
 | --- | --- | --- |
 | Stake-weighted polls | Yes | Yes |
 | Vote / EndPoll / VerifyMessages interface | Yes | Yes |
@@ -119,15 +119,15 @@ participant SR as Service Registry
 end
 actor Verifiers
 
-XGW->>+XVV: VerifyMessages([XRPLMessage, ...])
-XVV->>+SR: ActiveVerifiers
-SR-->>-XVV: weighted snapshot
+XGW->>XVV: VerifyMessages
+XVV->>SR: ActiveVerifiers
+SR-->>XVV: weighted snapshot
 XVV-->>Verifiers: emit messages_poll_started
-XVV-->>-XGW: per-message status (initially false/in-progress)
+XVV-->>XGW: per-message status, initially false or in-progress
 
 loop Verifiers vote
-    Verifiers->>+XVV: tx RPC lookup on XRPL
-    Verifiers->>XVV: Vote(poll_id, votes)
+    Verifiers->>XVV: tx RPC lookup on XRPL
+    Verifiers->>XVV: Vote
     Note over XVV: emit wasm-quorum_reached when threshold crossed
 end
 
@@ -145,10 +145,3 @@ Note over XVV: the wasm-quorum_reached event drives the relayer's next call,<br/
 ## Why there's no `VerifyVerifierSet` variant
 
 On the generic [`voting-verifier`](voting_verifier.md), verifier set rotations are confirmed by a separate `VerifyVerifierSet` execute variant that opens a different kind of poll. On XRPL the gateway is an XRPL account, not a contract, so the rotation event is the inclusion of a `SignerListSet` transaction on the XRPL ledger. That inclusion is reported back to Axelar as a `ProverMessage` (with the `SignerListSet` unsigned tx hash) and confirmed through the same `VerifyMessages` poll machinery used for any other XRPL transaction. The verifier set rotation is then promoted by the multisig prover's `ConfirmProverMessage` handler.
-
-## State of interest
-
-* `POLLS: Map<PollId, Poll>` — open and finished polls keyed by id.
-* `poll_messages: IndexedMap` — XRPL messages keyed by `XRPLMessage.hash()` with secondary `(poll_id, idx)` index.
-* `VOTES: Map<(PollId, verifier)>` — per-verifier vote records (used by `EndPoll` for participation accounting).
-* `CONFIG`: the snapshot of governance/admin/source-chain/voting-parameter configuration.

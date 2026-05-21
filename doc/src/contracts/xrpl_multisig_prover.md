@@ -6,7 +6,7 @@ The XRPL Multisig Prover constructs **fully-canonical XRPL transactions** that t
 
 ## What XRPL-specific work this contract absorbs compared to the generic prover
 
-| Concern | Generic [`multisig-prover`](multisig_prover.md) | XRPL Multisig Prover |
+| Concern | Generic Multisig Prover | XRPL Multisig Prover |
 | --- | --- | --- |
 | ConstructProof / signing session lifecycle | Yes | Yes |
 | UpdateVerifierSet / ConfirmVerifierSet | Yes (`ConfirmVerifierSet` from voting verifier) | Replaced by `ConfirmProverMessage` (verifier rotation rides a `SignerListSet` confirmation) |
@@ -174,22 +174,22 @@ participant MS as Multisig
 end
 actor Signers
 
-Relayer->>+XMP: ExecuteMsg::ConstructProof(cc_id, payload)
-XMP->>+XGW: QueryMsg::OutgoingMessages
-XGW-->>-XMP: stored router_api::Message
-XMP->>XMP: decode RECEIVE_FROM_HUB,<br/>allocate ticket from AVAILABLE_TICKETS,<br/>build XRPLPaymentTx (canonical bytes)
-XMP->>+MS: ExecuteMsg::StartSigningSession (digest = canonical bytes)
-MS-->>Signers: emit SigningStarted (per-signer digest includes signer's XRPL addr)
-MS-->>-XMP: reply with session ID
+Relayer->>XMP: ConstructProof
+XMP->>XGW: OutgoingMessages
+XGW-->>XMP: stored router Message
+XMP->>XMP: decode RECEIVE_FROM_HUB,<br/>allocate ticket from AVAILABLE_TICKETS,<br/>build XRPLPaymentTx canonical bytes
+XMP->>MS: StartSigningSession with canonical bytes
+MS-->>Signers: emit SigningStarted
+MS-->>XMP: reply with session ID
 XMP-->>Relayer: emit ProofUnderConstruction event
 loop Collect signatures
-    Signers->>+MS: ExecuteMsg::SubmitSignature
+    Signers->>MS: SubmitSignature
 end
 MS-->>Relayer: emit SigningCompleted
-Relayer->>+XMP: QueryMsg::Proof { multisig_session_id }
-XMP->>+MS: QueryMsg::Multisig
-MS-->>-XMP: state + signatures
-XMP-->>-Relayer: ProofResponse { unsigned_tx_hash, Completed { execute_data: signed XRPL tx blob } }
+Relayer->>XMP: Proof query with session ID
+XMP->>MS: Multisig query
+MS-->>XMP: state and signatures
+XMP-->>Relayer: ProofResponse with signed XRPL tx blob
 ```
 
 ### General steps
@@ -231,6 +231,7 @@ autonumber
 participant XRPL as XRPL ledger
 participant Relayer
 box LightYellow Axelar
+participant XGW as xrpl-gateway
 participant XMP as xrpl-multisig-prover
 participant SR as Service Registry
 participant MS as Multisig
@@ -238,27 +239,26 @@ participant XVV as xrpl-voting-verifier
 end
 actor Signers
 
-Relayer->>+XMP: ExecuteMsg::UpdateVerifierSet
-XMP->>+SR: QueryMsg::ActiveVerifiers
-SR-->>-XMP: candidate verifier set
-alt diff exceeds threshold
-    XMP->>XMP: save as NextVerifierSet
-    XMP->>+MS: StartSigningSession (XRPL SignerListSet bytes, signed by CURRENT set)
-    loop Collect signatures
-        Signers->>+MS: SubmitSignature
-    end
-    Relayer->>+XMP: QueryMsg::Proof
-    XMP-->>-Relayer: signed SignerListSet tx
-    Relayer->>XRPL: submit signed SignerListSet
-    XRPL-->>Relayer: tx confirmed in ledger
-    Relayer->>+XGW: VerifyMessages with ProverMessage (SignerListSet)
-    Note over XVV: standard ProverMessage poll
-    Relayer->>+XMP: ExecuteMsg::ConfirmProverMessage
-    XMP->>+XVV: QueryMsg::MessagesStatus (the ProverMessage)
-    XVV-->>-XMP: SucceededOnSourceChain
-    XMP->>XMP: promote NextVerifierSet -> CurrentVerifierSet
-    XMP->>+MS: ExecuteMsg::RegisterVerifierSet
+Relayer->>XMP: UpdateVerifierSet
+XMP->>SR: ActiveVerifiers
+SR-->>XMP: candidate verifier set
+Note over XMP: continue only if diff<br/>exceeds the configured threshold
+XMP->>XMP: save as NextVerifierSet
+XMP->>MS: StartSigningSession with SignerListSet bytes,<br/>signed by the current verifier set
+loop Collect signatures
+    Signers->>MS: SubmitSignature
 end
+Relayer->>XMP: Proof query
+XMP-->>Relayer: signed SignerListSet tx
+Relayer->>XRPL: submit signed SignerListSet
+XRPL-->>Relayer: tx confirmed in ledger
+Relayer->>XGW: VerifyMessages with ProverMessage
+Note over XVV: standard ProverMessage poll runs
+Relayer->>XMP: ConfirmProverMessage
+XMP->>XVV: MessagesStatus query
+XVV-->>XMP: SucceededOnSourceChain
+XMP->>XMP: promote NextVerifierSet to CurrentVerifierSet
+XMP->>MS: RegisterVerifierSet
 ```
 
 ### General steps
@@ -285,15 +285,3 @@ XRPL has a strict per-account `Sequence` (like an EVM nonce). To allow multiple 
 | TrustSet | Plain sequence | One trust line at a time |
 
 The `FEE_RESERVE` counter (in XRP drops) tracks the multi sign account's available XRP. Every new transaction is gated by `ensure_sufficient_fee_reserve` against `xrpl_base_reserve + xrpl_owner_reserve * (251 + trust_line_count) + tx_fee`. `ConfirmAddReservesMessage` is called after the [XRPL Voting Verifier](xrpl_voting_verifier.md) confirms an operator-initiated XRP top-up.
-
-## State of interest
-
-* `AVAILABLE_TICKETS: Item<Vec<u32>>` — the pool of currently-usable XRPL tickets.
-* `NEXT_SEQUENCE_NUMBER: Item<u32>` — for plain-sequence transactions.
-* `LAST_ASSIGNED_TICKET_NUMBER: Item<u32>` — round-robin allocation counter.
-* `CROSS_CHAIN_ID_TO_TICKET: Map<&CrossChainId, u32>` — stable cc_id-to-ticket mapping so re-submissions reuse the same ticket.
-* `FEE_RESERVE: Item<u64>` — the XRP budget in drops.
-* `TRUST_LINE_COUNT: Item<u32>` — number of open trust lines (affects owner reserve).
-* `CURRENT_VERIFIER_SET`, `NEXT_VERIFIER_SET` — Axelar's view of the multi sign account's signers.
-* `MULTISIG_SESSION_PAYLOAD: Map<u64, PayloadId>` — pending signing session bookkeeping.
-* `PAYLOAD: Map<&PayloadId, Payload>` — payloads in flight, keyed by id.
