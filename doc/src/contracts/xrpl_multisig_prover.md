@@ -253,13 +253,4 @@ On the generic prover, after a `rotateSigners` calldata is broadcast to the dest
 
 ## Tickets, sequence numbers, and fee reserve
 
-XRPL has a strict per-account `Sequence` (like an EVM nonce). To allow multiple in-flight bridge transactions and out-of-order confirmation, the prover uses **tickets**: pre-allocated sequence numbers from a pool of up to 250.
-
-| Transaction type | Sequence field | Why |
-| --- | --- | --- |
-| Payment | Ticket | Many in flight; can confirm out-of-order |
-| TicketCreate | Plain sequence | Refills the ticket pool; must be strictly ordered |
-| SignerListSet | Plain sequence | Verifier set rotation; one at a time |
-| TrustSet | Plain sequence | One trust line at a time |
-
-The `FEE_RESERVE` counter (in XRP drops) tracks the multi sign account's available XRP. Every new transaction is gated by `ensure_sufficient_fee_reserve` against `xrpl_base_reserve + xrpl_owner_reserve * (251 + trust_line_count) + tx_fee`. `ConfirmAddReservesMessage` is called after the [XRPL Voting Verifier](xrpl_voting_verifier.md) confirms an operator-initiated XRP top-up.
+See [Tickets](../tickets.md) for the full treatment of how the prover manages XRPL sequence numbers, the ticket pool (assignment, reuse under contention, refill flow), and the `FEE_RESERVE` budget.

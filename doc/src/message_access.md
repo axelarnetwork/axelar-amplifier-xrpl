@@ -178,12 +178,3 @@ SetActiveVerifiers {
     verifiers: HashSet<String>,
 }
 ```
-
-## Rewards
-
-### Governance
-```rust
-UpdatePoolParams { params: Params, pool_id: PoolId },
-
-CreatePool { params: Params, pool_id: PoolId },
-```

@@ -31,12 +31,11 @@ pub struct InstantiateMsg {
     pub block_expiry: nonempty::Uint64,
     pub confirmation_height: u32,
     pub source_chain: ChainName,
-    pub rewards_address: nonempty::String,
 }
 
 pub enum ExecuteMsg {
-    // Compute the results of a poll. Anyone can call. Emits a PollEnded event and
-    // records participation for rewards. Permission: Any.
+    // Compute the results of a poll. Anyone can call. Emits a PollEnded event.
+    // Permission: Any.
     EndPoll { poll_id: PollId },
 
     // Cast votes for the specified poll. Caller must be a participant in the snapshot.
@@ -121,7 +120,7 @@ Note over XVV: the wasm-quorum_reached event drives the relayer's next call,<br/
 2. The voting verifier takes a weighted snapshot of the active verifiers for chain `xrpl` from the [Service Registry](service_registry.md). The snapshot is bound to the poll for its entire lifetime.
 3. A `messages_poll_started` event is emitted carrying the candidate `XRPLMessage`s. Off chain, each verifier's XRPL handler picks the event up, fetches the cited XRPL transactions via JSON RPC, runs XRPL-specific consistency checks (multi-sign destination, `delivered_amount == Amount` to close the [`tfPartialPayment`](../glossary.md#tfpartialpayment) exploit, memo parsing, payload hash), and casts a `Vote`.
 4. The moment a vote pushes weighted tally past quorum, the contract emits a `wasm-quorum_reached` event. The [Axelar GMP API](../glossary.md#axelar-gmp-api) delivers a task to the XRPL relayer. The relayer's next action depends on the `XRPLMessage` variant: for `InterchainTransferMessage` or `CallContractMessage` it calls `RouteIncomingMessages` on the gateway; for `ProverMessage` it calls `ConfirmProverMessage` on the multisig prover.
-5. `EndPoll` is called separately to finalize the poll status and record participation with the Rewards contract. It is not on the critical path for routing.
+5. `EndPoll` is called separately to finalize the poll status. It is not on the critical path for routing.
 
 ## Why there's no `VerifyVerifierSet` variant
 

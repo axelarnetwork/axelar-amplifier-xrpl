@@ -3,6 +3,7 @@
 [Amplifier Protocol Overview](overview.md)
 [Message Flows](message-flows.md)
 [Supported Values and Tokens](tokens-and-amounts.md)
+[Tickets](tickets.md)
 
 # General Axelar Contracts
 
@@ -12,7 +13,6 @@
 - [Gateway](contracts/gateway.md)
 - [Voting Verifier](contracts/voting_verifier.md)
 - [Multisig Prover](contracts/multisig_prover.md)
-- [Rewards](contracts/rewards.md)
 - [Coordinator](contracts/coordinator.md)
 
 # XRPL-Specific Axelar Contracts

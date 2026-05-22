@@ -73,9 +73,6 @@ For the message-level walkthroughs of each direction, see [Message Flows to and 
 ### Coordinator
 [`coordinator`](contracts/coordinator.md) tracks per-chain prover registrations and the verifier sets active on each chain. It serves as the unbonding gate for the service registry, so verifiers cannot withdraw stake while still active on any chain.
 
-### Rewards
-[`rewards`](contracts/rewards.md) tracks verifier participation per epoch and distributes rewards. The xrpl-voting-verifier records participation on poll end, and the multisig contract records signing participation.
-
 ### Axelarnet Gateway
 The [Axelarnet Gateway](https://github.com/axelarnetwork/axelar-amplifier/tree/main/contracts/axelarnet-gateway) (in the upstream repo) is the contract through which Axelar-resident contracts such as the ITS Hub send and receive cross-chain messages via the generic router. Every ITS message in either direction between XRPL and another chain passes through it.
 
