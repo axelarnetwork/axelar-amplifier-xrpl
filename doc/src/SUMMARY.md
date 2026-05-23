@@ -1,6 +1,6 @@
 # Summary
 
-[Amplifier Protocol Overview](overview.md)
+[XRPL<>Axelar Integration Overview](overview.md)
 [Message Flows](message-flows.md)
 [Supported Values and Tokens](tokens-and-amounts.md)
 [Tickets](tickets.md)
