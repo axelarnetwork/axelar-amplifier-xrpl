@@ -1,6 +1,6 @@
 # Tickets
 
-XRPL enforces a strict per-account [`Sequence`](glossary.md#sequence) number on every transaction (the same role an EVM nonce plays). For the multi sign account that backs the bridge, this would normally mean only one transaction can be in flight at a time, and confirmations would have to land strictly in order. To get around that, the [XRPL Multisig Prover](contracts/xrpl_multisig_prover.md) uses **tickets**: pre-allocated sequence numbers that the multi sign account reserves in advance, drawn from a pool of up to 250.
+XRPL enforces a strict per-account [`Sequence`](glossary.md#sequence-number) number on every transaction (the same role an EVM nonce plays). For the multisig account that backs the bridge, this would normally mean only one transaction can be in flight at a time, and confirmations would have to land strictly in order. To get around that, the [XRPL Multisig Prover](contracts/xrpl_multisig_prover.md) uses **tickets**: pre-allocated sequence numbers that the multisig account reserves in advance, drawn from a pool of up to 250.
 
 Tickets let many bridge transactions be signed and submitted in parallel, and let them confirm out of order. Operations that fundamentally have to be serial (pool refill, verifier set rotation, trust line management) still use a plain sequence number.
 
@@ -119,10 +119,10 @@ The flow:
 
 ## Fee reserve
 
-In addition to the ticket pool, the prover tracks a `FEE_RESERVE` counter (in [XRP drops](glossary.md#drops)) that represents the multi sign account's available XRP for paying transaction fees. Every new transaction the prover builds is gated by `ensure_sufficient_fee_reserve`, which checks the budget against:
+In addition to the ticket pool, the prover tracks a `FEE_RESERVE` counter (in [XRP drops](glossary.md#drop)) that represents the multisig account's available XRP for paying transaction fees. Every new transaction the prover builds is gated by `ensure_sufficient_fee_reserve`, which checks the budget against:
 
 ```
 xrpl_base_reserve + xrpl_owner_reserve * (251 + trust_line_count) + tx_fee
 ```
 
-The `+ 251` term accounts for the maximum 250 tickets plus the multi sign account's own `SignerList`, each of which counts as an "owned object" on XRPL and contributes to the [reserve](glossary.md#reserve) requirement. The reserve is topped up via `ConfirmAddReservesMessage` after the [XRPL Voting Verifier](contracts/xrpl_voting_verifier.md) confirms an operator-initiated XRP top-up `AddReservesMessage`.
+The `+ 251` term accounts for the maximum 250 tickets plus the multisig account's own `SignerList`, each of which counts as an "owned object" on XRPL and contributes to the [reserve](glossary.md#reserve) requirement. The reserve is topped up via `ConfirmAddReservesMessage` after the [XRPL Voting Verifier](contracts/xrpl_voting_verifier.md) confirms an operator-initiated XRP top-up `AddReservesMessage`.

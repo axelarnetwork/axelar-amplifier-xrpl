@@ -104,8 +104,8 @@ The bridge identifies each cross-chain token with the standard ITS 32-byte [`tok
 
 | Map | Purpose |
 | --- | --- |
-| `XRPL_TOKEN_TO_LOCAL_TOKEN_ID: Map<XRPLToken, TokenId>` | Lookups for **XRPL-native IOUs**: the issuer is some XRPL account other than the multi sign account, and the token has been registered via `RegisterLocalToken`. |
-| `XRPL_CURRENCY_TO_REMOTE_TOKEN_ID: Map<XRPLCurrency, TokenId>` | Lookups for **remote-origin tokens**: the XRPL representation is an IOU issued by the multi sign account itself, registered via `RegisterRemoteToken`. |
+| `XRPL_TOKEN_TO_LOCAL_TOKEN_ID: Map<XRPLToken, TokenId>` | Lookups for **XRPL-native IOUs**: the issuer is some XRPL account other than the multisig account, and the token has been registered via `RegisterLocalToken`. |
+| `XRPL_CURRENCY_TO_REMOTE_TOKEN_ID: Map<XRPLCurrency, TokenId>` | Lookups for **remote-origin tokens**: the XRPL representation is an IOU issued by the multisig account itself, registered via `RegisterRemoteToken`. |
 | `TOKEN_ID_TO_XRPL_TOKEN: Map<TokenId, XRPLToken>` | Reverse lookup. |
 
 Native XRP has its own special token id computed once at gateway instantiation: `tokenId(salt = keccak256("XRP" zero-padded to 20 bytes))` with deployer `rrrrrrrrrrrrrrrrrrrrrhoLvTp` (XRPL's canonical null-account). This is exposed via the gateway's `XrpTokenId` query.
@@ -116,16 +116,16 @@ Across the whole bridge, three categories of tokens can move to and from XRPL:
 
 | Category | XRPL representation | How a user receives it on XRPL | How tokens are "minted" on XRPL outbound delivery |
 | --- | --- | --- | --- |
-| **Native XRP** | Drops | Drops sent by the multi sign account | Multi sign account pays drops out of its own balance (sourced from inbound transfers) |
-| **XRPL-native IOU** (origin = XRPL, issuer ≠ multisig) | IOU `(currency, issuer)` | Multi sign account sends IOU it received on inbound transfers; multisig must have a `TrustSet` to the issuer. | Held in the multi sign account's balance, sent out via `Payment` of that IOU |
-| **Remote-origin token** (origin = another chain) | IOU `(currency, multisig_issuer)` | Multi sign account mints the IOU to the recipient. Recipient must already have a `TrustSet` against the multi sign account for that currency code. | New IOU created on the fly; no external balance needed |
+| **Native XRP** | Drops | Drops sent by the multisig account | Multisig account pays drops out of its own balance (sourced from inbound transfers) |
+| **XRPL-native IOU** (origin = XRPL, issuer ≠ multisig) | IOU `(currency, issuer)` | Multisig account sends IOU it received on inbound transfers; multisig must have a `TrustSet` to the issuer. | Held in the multisig account's balance, sent out via `Payment` of that IOU |
+| **Remote-origin token** (origin = another chain) | IOU `(currency, multisig_issuer)` | Multisig account mints the IOU to the recipient. Recipient must already have a `TrustSet` against the multisig account for that currency code. | New IOU created on the fly; no external balance needed |
 
 ## Trust line setup
 
 XRPL holders track IOU balances via [trust lines](glossary.md#trust-line). Two scenarios apply:
 
-* **For XRPL-native IOUs** (issuer is some external XRPL account), the multi sign account itself must have a `TrustSet` open against the issuer before it can hold the IOU and pay it back out. Operators trigger this by calling `TrustSet { token_id }` on the [XRPL Multisig Prover](contracts/xrpl_multisig_prover.md), which builds and signs an XRPL `TrustSet` transaction.
-* **For remote-origin tokens** (issuer is the multi sign account), the **recipient on XRPL** must have a `TrustSet` open against the multi sign account before any inbound delivery can succeed. Without it the XRPL ledger rejects the `Payment`. This is a user-side requirement; the bridge does not open trust lines on the recipient's behalf.
+* **For XRPL-native IOUs** (issuer is some external XRPL account), the multisig account itself must have a `TrustSet` open against the issuer before it can hold the IOU and pay it back out. Operators trigger this by calling `TrustSet { token_id }` on the [XRPL Multisig Prover](contracts/xrpl_multisig_prover.md), which builds and signs an XRPL `TrustSet` transaction.
+* **For remote-origin tokens** (issuer is the multisig account), the **recipient on XRPL** must have a `TrustSet` open against the multisig account before any inbound delivery can succeed. Without it the XRPL ledger rejects the `Payment`. This is a user-side requirement; the bridge does not open trust lines on the recipient's behalf.
 
 Each trust line is also an "owned object" on the XRPL ledger and therefore consumes an [owner reserve](glossary.md#reserve) on the holder. 
 

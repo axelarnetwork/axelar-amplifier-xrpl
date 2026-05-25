@@ -1,9 +1,10 @@
 # Summary
 
-[XRPL<>Axelar Integration Overview](overview.md)
+[Axelar<>XRPL Integration Overview](overview.md)
 [Message Flows](message-flows.md)
 [Supported Values and Tokens](tokens-and-amounts.md)
 [Tickets](tickets.md)
+[Firewalling and Flow Limits](firewalling.md)
 
 # General Axelar Contracts
 

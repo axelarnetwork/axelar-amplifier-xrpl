@@ -122,7 +122,7 @@ The gateway accepts a single enum `XRPLMessage` (defined in upstream [`packages/
 | `InterchainTransferMessage` | Inbound user payment | Token transfer through ITS to another chain (or to an executable on the destination if `payload` is set). |
 | `CallContractMessage` | Inbound user payment | Pure GMP call (no token transfer). Skips the ITS Hub entirely. |
 | `AddGasMessage` | Inbound user top-up | Adds gas to an in-flight cross-chain message identified by its original tx hash. |
-| `AddReservesMessage` | Inbound operator top-up | XRP-only payment to top up the multi sign account's XRPL reserves. Confirmed by the multisig prover, not the gateway. |
+| `AddReservesMessage` | Inbound operator top-up | XRP-only payment to top up the multisig account's XRPL reserves. Confirmed by the multisig prover, not the gateway. |
 | `ProverMessage` | Outbound from the multisig | Reports that a prover-built XRPL transaction has landed on the ledger. Confirmed by the multisig prover. |
 
 The gateway is the verification entry point for **all five** variants (via `VerifyMessages`), but only handles `InterchainTransferMessage`, `CallContractMessage`, and `AddGasMessage` in its routing/confirmation logic. `AddReservesMessage` and `ProverMessage` are confirmed by the [XRPL Multisig Prover](xrpl_multisig_prover.md).

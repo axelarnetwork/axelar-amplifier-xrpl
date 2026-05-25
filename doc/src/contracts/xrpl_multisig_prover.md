@@ -2,7 +2,7 @@
 
 Source: [`contracts/xrpl-multisig-prover`](https://github.com/axelarnetwork/axelar-amplifier-xrpl/tree/main/contracts/xrpl-multisig-prover).
 
-The XRPL Multisig Prover constructs **fully-canonical XRPL transactions** that the on-XRPL multi sign account submits to deliver Axelar-to-XRPL traffic. On other Amplifier chains the prover only has to produce an `execute_data` blob that the destination chain's gateway will then verify and execute; on XRPL there is no destination contract to do that verification, so the prover's output **is the on-chain transaction itself**. The prover therefore also owns all the XRPL-specific bookkeeping that this implies: a pool of pre-allocated [tickets](../glossary.md#ticket) for parallel out-of-order in-flight transactions, an XRP [reserve](../glossary.md#reserve) budget for the multi sign account, trust line management for receiving local IOUs, and the current/next verifier set view used to populate the multi sign account's `SignerList`.
+The XRPL Multisig Prover constructs **fully-canonical XRPL transactions** that the on-XRPL multisig account submits to deliver Axelar-to-XRPL traffic. On other Amplifier chains the prover only has to produce an `execute_data` blob that the destination chain's gateway will then verify and execute; on XRPL there is no destination contract to do that verification, so the prover's output **is the on-chain transaction itself**. The prover therefore also owns all the XRPL-specific bookkeeping that this implies: a pool of pre-allocated [tickets](../glossary.md#ticket) for parallel out-of-order in-flight transactions, an XRP [reserve](../glossary.md#reserve) budget for the multisig account, trust line management for receiving local IOUs, and the current/next verifier set view used to populate the multisig account's `SignerList`.
 
 ## What XRPL-specific work this contract absorbs compared to the generic prover
 
@@ -12,8 +12,8 @@ The XRPL Multisig Prover constructs **fully-canonical XRPL transactions** that t
 | UpdateVerifierSet / ConfirmVerifierSet | Yes (`ConfirmVerifierSet` from voting verifier) | Replaced by `ConfirmProverMessage` (verifier rotation rides a `SignerListSet` confirmation) |
 | Output | Encoded calldata for destination chain's gateway | **An XRPL canonical-serialized transaction** (Payment / SignerListSet / TicketCreate / TrustSet) |
 | Sequence management | N/A (no per-account nonce on Axelar side) | **Yes**: maintains `AVAILABLE_TICKETS` pool, `NEXT_SEQUENCE_NUMBER`, `LAST_ASSIGNED_TICKET_NUMBER` |
-| Fee/reserve budget | N/A | **Yes**: `FEE_RESERVE` tracks the multi sign account's XRP balance budget; `ConfirmAddReservesMessage` credits top-ups |
-| Per-token plumbing | N/A | **Yes**: `TrustSet` execute variant for opening trust lines so the multi sign account can receive a local-origin IOU |
+| Fee/reserve budget | N/A | **Yes**: `FEE_RESERVE` tracks the multisig account's XRP balance budget; `ConfirmAddReservesMessage` credits top-ups |
+| Per-token plumbing | N/A | **Yes**: `TrustSet` execute variant for opening trust lines so the multisig account can receive a local-origin IOU |
 | Proof status query | Returns full `ProofResponse` with `execute_data` | Returns `unsigned_tx_hash` plus `Completed { execute_data: signed XRPL tx blob }` |
 
 ## Interface
@@ -71,7 +71,7 @@ pub enum ExecuteMsg {
     // pool drops below threshold; the contract decides internally how many to mint).
     TicketCreate,
 
-    // Build an XRPL TrustSet transaction for the multi sign account to be able to hold
+    // Build an XRPL TrustSet transaction for the multisig account to be able to hold
     // the given local-origin IOU. Permission: Elevated.
     TrustSet { token_id: TokenId },
 
@@ -177,7 +177,7 @@ XMP-->>Relayer: ProofResponse with signed XRPL tx blob
 3. It parses the destination as a classic XRPL address, converts the amount into the right [`XRPLPaymentAmount`](../glossary.md#xrp) (drops for XRP, or 54-bit-mantissa + exponent for an IOU), allocates a [ticket](../glossary.md#ticket) from `AVAILABLE_TICKETS`, and builds an XRPL Payment transaction whose `Sequence` field is the allocated ticket.
 4. The prover opens a signing session at the generic [`multisig`](multisig.md) contract, passing the XRPL canonical serialization as the message to sign. **Each verifier signs a slightly different digest**, because XRPL multi-signing requires appending the signer's own XRPL account id to the canonical bytes before the SHA-512-half hash.
 5. Once quorum is reached, the relayer queries `Proof { multisig_session_id }` and gets back `ProofStatus::Completed { execute_data: <signed XRPL tx blob> }`. It then broadcasts the blob to the XRPL ledger.
-6. The relayer's subscriber sees the multi sign account's outbound transaction land on the ledger and reports it back via `VerifyMessages` with a `ProverMessage`. Once the [XRPL Voting Verifier](xrpl_voting_verifier.md) confirms it, the relayer calls `ConfirmProverMessage` which releases the ticket and clears the stored payload.
+6. The relayer's subscriber sees the multisig account's outbound transaction land on the ledger and reports it back via `VerifyMessages` with a `ProverMessage`. Once the [XRPL Voting Verifier](xrpl_voting_verifier.md) confirms it, the relayer calls `ConfirmProverMessage` which releases the ticket and clears the stored payload.
 
 ## Update and confirm VerifierSet graph
 
@@ -243,7 +243,7 @@ XMP->>MS: RegisterVerifierSet
 
 1. The relayer (or governance) calls `UpdateVerifierSet`.
 2. The prover queries the [Service Registry](service_registry.md) for the active verifier set for chain `xrpl`. If the diff against the current set exceeds `verifier_set_diff_threshold`, the candidate becomes the prover's `NextVerifierSet`.
-3. The prover builds an XRPL `SignerListSet` transaction that mirrors the new verifier set into the multi sign account's on-XRPL `SignerList`, with weights scaled to fit XRPL's `u16` weight field, and a quorum derived from the prover's `signing_threshold`. The transaction is signed by the **outgoing** verifier set.
+3. The prover builds an XRPL `SignerListSet` transaction that mirrors the new verifier set into the multisig account's on-XRPL `SignerList`, with weights scaled to fit XRPL's `u16` weight field, and a quorum derived from the prover's `signing_threshold`. The transaction is signed by the **outgoing** verifier set.
 4. The relayer broadcasts the signed `SignerListSet` to the XRPL ledger. The transaction inclusion is then reported back to Axelar as a `ProverMessage` and confirmed through the standard `VerifyMessages` poll machinery.
 5. `ConfirmProverMessage` is called after the poll reaches quorum. The prover promotes `NextVerifierSet` to `CurrentVerifierSet`, calls `RegisterVerifierSet` on the generic [`multisig`](multisig.md) contract so subsequent signing sessions reference the new set, and pushes the new set to the [Coordinator](coordinator.md) via `SetActiveVerifiers` for cross-chain bookkeeping.
 
