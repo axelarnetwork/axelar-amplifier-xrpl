@@ -1,8 +1,12 @@
 # Summary
 
-[Overview](overview.md)
+[Axelar<>XRPL Integration Overview](overview.md)
+[Message Flows](message-flows.md)
+[Supported Values and Tokens](tokens-and-amounts.md)
+[Tickets](tickets.md)
+[Firewalling and Flow Limits](firewalling.md)
 
-# Contracts
+# General Axelar Contracts
 
 - [Service Registry](contracts/service_registry.md)
 - [Router](contracts/router.md)
@@ -10,13 +14,15 @@
 - [Gateway](contracts/gateway.md)
 - [Voting Verifier](contracts/voting_verifier.md)
 - [Multisig Prover](contracts/multisig_prover.md)
-- [Rewards](contracts/rewards.md)
 - [Coordinator](contracts/coordinator.md)
 
-## Message Access Requirements
+# XRPL-Specific Axelar Contracts
 
-- [Amplifier Access Control](message_access.md)
+- [XRPL Gateway](contracts/xrpl_gateway.md)
+- [XRPL Voting Verifier](contracts/xrpl_voting_verifier.md)
+- [XRPL Multisig Prover](contracts/xrpl_multisig_prover.md)
 
-# Contributing
+---
 
-- [Documentation](contributing/documentation.md)
+[Access Control](message_access.md)
+[Glossary](glossary.md)

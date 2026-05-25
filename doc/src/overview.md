@@ -1,198 +1,196 @@
-# Message Semantics
+# Axelar<>XRPL Integration Overview
 
-Structure of a routing packet (`M` in the diagrams)
+The Axelar<>XRPL integration enables message passing between XRPL and other Axelar-supported blockchains via the Axelar Amplifier network. Amplifier is a set of CosmWasm contracts on the Axelar chain that lets any external chain connect to the Axelar interchain network without changes to Axelar's core. Each connected chain plugs in through a small group of per-chain contracts (Gateway, Voting Verifier, and Multisig Prover) used to verify and route messages to a destination chain. The integration allows transferring XRP and tokens issued on XRPL to other supported chains and back. It also supports bridging non-XRPL tokens between their native blockchain and XRPL, as well as sending messages to other chains (General Message Passing).
 
-```rust
-    struct Message {
-    cc_id: CrossChainId,
-    source_address: Address,
-    // String
-    destination_chain: ChainName,
-    // String
-    destination_address: Address,
-    payload_hash: [u8; 32]
-}
+XRPL is different from other chain integrations because it has no smart contract layer. Instead, the XRPL gateway is implemented as a multisig account whose signers are the active Axelar verifier set, and that signer set is kept in sync by SignerListSet transactions on XRPL. Users initiate cross-chain actions by sending an XRPL `Payment` to that account with structured `Memos`; the Amplifier side then processes the transaction through the three XRPL-specific contracts ([xrpl-gateway](contracts/xrpl_gateway.md), [xrpl-voting-verifier](contracts/xrpl_voting_verifier.md), [xrpl-multisig-prover](contracts/xrpl_multisig_prover.md)), along with the generic Amplifier contracts and the ITS Hub.
 
-// Combination of chain name and a unique identifier
-pub struct CrossChainId {
-    pub chain: ChainName,
-    pub id: nonempty::String,
-}
-```
+## High Level Architecture
 
-# High Level Architecture
-
-Incoming Flow:
+### Incoming Flow
 
 ```mermaid
 flowchart TD
 subgraph Axelar
-	G1{"Gateway"}
+	G1{"xrpl-gateway"}
     G2{"Gateway"}
-	Vr{"Aggregate Verifier"}
-	Vo{"Voting verifier"}
+	Vo{"xrpl-voting-verifier"}
 	R{"Router"}
     S{"Service Registry"}
 end
 
 Relayer --"VerifyMessages([M1,M2])"-->G1
-G1 --"VerifyMessages([M1,M2])"--> Vr
-Vr --"VerifyMessages([M1,M2])"--> Vo
-Vo --"GetActiveVerifiers"--> S
+G1 --"VerifyMessages([M1,M2])"--> Vo
+Vo --"ActiveVerifiers"--> S
 Verifiers --"Vote(poll_id, votes)"--> Vo
 
-Relayer --"RouteMessages([M1,M2])"-->G1
+Relayer --"RouteIncomingMessages([M1,M2])"-->G1
 G1 --"RouteMessages([M1,M2])"-->R
 R --"RouteMessages([M1,M2])"-->G2
 ```
 
-Outgoing Flow:
+### Outgoing Flow
 
 ```mermaid
 flowchart TD
 subgraph Axelar
-    G2{"Gateway"}
-    P{"Prover"}
+    G2{"xrpl-gateway"}
+    P{"xrpl-multisig-prover"}
     M{"Multisig"}
     S{"Service Registry"}
 end
 
-Relayer --"ConstructProof([M1.id,M2.id])"-->P
-P --"GetMessages([M1.id,M2.id])"-->G2
-P --"GetActiveVerifiers"-->S
+Relayer --"ConstructProof(cc_id, payload)"-->P
+P --"OutgoingMessages([M1.id,M2.id])"-->G2
+P --"ActiveVerifiers"-->S
 P --"StartSigningSession(verifier_set_id, payload_hash)"-->M
 Verifiers --"SubmitSignature(session_id, signature)"-->M
-Relayer --"GetProof(multisig_session_id)" --> P
-P --"GetSigningSession(session_id)"-->M
+Relayer --"Proof(multisig_session_id)" --> P
+P --"Multisig(session_id)"-->M
 ```
 
-# Event Flow
-
-In the below diagram, the blue box represents the protocol. All messages flowing into, out of or within the blue box
-are part of the protocol. All components within the blue box are on chain. All components outside the blue box are off
-chain.
-
-## Voting Contract Flows
-
-Incoming Message Flow
-
-```mermaid
-sequenceDiagram
-    participant Relayer
-    box LightYellow Protocol
-    participant IncomingGateway
-    participant Router
-    participant Verifier
-    participant Prover
-    participant Voting Verifier
-    participant Service Registry
-    end
-    participant Verifier
-    Relayer->>IncomingGateway: VerifyMessages([M1,M2])
-    IncomingGateway->>Verifier: VerifyMessages([M1,M2])
-    Verifier->>Voting Verifier: VerifyMessages([M1,M2])
-    Voting Verifier->>Service Registry: GetActiveVerifiers
-    Voting Verifier->>Verifier: emit PollStarted
-    Voting Verifier-->>Verifier: [(M1.id,false),(M2.id,false)]
-    Verifier-->>IncomingGateway: [(M1.id,false),(M2.id, false)]
-    IncomingGateway-->>Relayer: [(M1.id,false),(M2.id, false)]
-    Verifier->>Voting Verifier: Vote
-    Verifier->>Voting Verifier: Vote
-    Verifier->>Voting Verifier: EndPoll
-
-
-
-    Relayer->>IncomingGateway: RouteMessages([M1,M2])
-    IncomingGateway->>Verifier: IsVerified([M1,M2])
-    Verifier->>Voting Verifier: IsVerified([M1,M2])
-    Voting Verifier->>Verifier: [(M1.id,true),(M2.id,true)]
-    Verifier->>IncomingGateway: [(M1.id,true),(M2.id,true)]
-    IncomingGateway->>Router: RouteMessages([M1,M2])
-
-```
-
-Outgoing Message Flow
-
-```mermaid
-sequenceDiagram
-    participant Relayer
-    box LightYellow Protocol
-    participant OutgoingGateway
-    participant Router
-    participant Prover
-    participant Multisig
-    end
-    participant Verifier
-
-
-    Router->>OutgoingGateway: RouteMessages([M1,M2])
-    Relayer->>Prover: ConstructProof([M1.id,M2.id])
-    Prover->>OutgoingGateway: GetMessages([M1,M2])
-    OutgoingGateway-->>Prover: [M1,M2]
-    Prover->>Prover: create payload of [M1,M2]
-    Prover->>Multisig: StartSigningSession(snapshot, payload hash)
-    Multisig-->>Prover: multisig_session_id
-    Prover-->>Relayer: multisig_session_id
-    Verifier->>Multisig: SubmitSignature(session_id, signature)
-    Verifier->>Multisig: SubmitSignature(session_id, signature)
-    Relayer->>Prover: GetProof(multisig_session_id)
-    Prover->>Multisig: GetSigningSession(session_id)
-    Multisig-->>Prover: signing session
-    Prover-->>Relayer: signed payload
-
-```
-
-Prover stores the snapshot of the current signers and passes the snapshot to the multisig contract.
-Periodically, the stored snapshot is rotated by the prover controller, which triggers the prover to
-query the service registry for an updated snapshot.
+For the message-level walkthroughs of each direction, see [Message Flows to and from XRPL](message-flows.md).
 
 ## Contract Overview
 
-### Router
-
-[`router`](contracts/router.md) is the way messages are passed between different gateways. The
-router has methods for registering new chains and gateways, updating the address of the registered gateway, and freezing
-chains (preventing message flow). These methods are only callable by the router admin. Messages are passed to the router
-from registered gateways, and the router passes those messages to the appropriate gateway based on each message's
-destination chain.
-
 ### Gateway
+[`xrpl-gateway`](contracts/xrpl_gateway.md) is the entry and exit point on Axelar for XRPL traffic. It accepts inbound XRPL messages from the relayer for verification, routes verified user-payment variants through the router (and through the ITS Hub for token transfers), confirms gas top-ups, and stores outbound messages from the router for the multisig prover to pick up. It also acts as the ITS edge for XRPL: it holds the token-id registry, queries the ITS Hub for destination decimals, scales amounts between chains, and tracks accrued gas per token id.
 
-[`gateway`](contracts/gateway.md) is the entry point for incoming messages. Each gateway corresponds to a single
-connected external chain. Messages are passed to the gateway in a permissionless manner. For each message passed to the
-gateway, the gateway checks whether the message has been verified by calling into a linked verifier contract. For each
-verified message, the gateway passes the message to the router.
+### Voting Verifier
+[`xrpl-voting-verifier`](contracts/xrpl_voting_verifier.md) runs stake-weighted polls over XRPL transactions for all five `XRPLMessage` variants. When the xrpl-gateway calls `VerifyMessages`, the voting verifier opens a poll, takes a weighted snapshot of the active verifier set from the service registry, and emits a `messages_poll_started` event. Off-chain verifiers cast their votes; once quorum is reached, the contract emits `wasm-quorum_reached`, which is what triggers the relayer's next action (routing or confirmation, depending on the message variant).
 
-The gateway also accepts messages from the router. These are messages sent from other chains. The gateway trusts that
-any message being sent from the router was originally sent from the correct source gateway, and verified appropriately
-by the source verifier. The gateway stores these received messages, which can be later added to a proof, to be relayed
-to an external chain.
+### Multisig Prover
+[`xrpl-multisig-prover`](contracts/xrpl_multisig_prover.md) builds the XRPL transactions that the multisig account needs to send: `Payment` for token deliveries, `SignerListSet` for verifier set rotation, `TicketCreate` to refill the ticket pool, and `TrustSet` to open trust lines for XRPL-native IOUs. It opens signing sessions on the generic multisig contract, manages the available-ticket pool and sequence numbers, tracks the XRP fee reserve that funds outbound transaction fees, and holds the current/next verifier set.
 
-### Verifier
+### Router
+[`router`](contracts/router.md) maintains the registry of connected chains and their gateways and routes verified messages between them. The xrpl-gateway is a registered chain gateway and uses it both inbound (delivering verified messages on toward the ITS Hub or directly to a destination chain) and outbound (receiving messages whose destination is XRPL from other source chains).
 
-The verifier contracts are responsible for verifying whether a given message or batch of messages has occurred on a
-connected external chain. The verifier can take many different forms, such as
-a [`voting-verifier`](contracts/voting_verifier.md) that conducts stake weighted polls for batches of messages, a light
-client that accepts block headers and merkle tree proofs, a zk proof verifier, etc. The verifier can also be
-an aggregate verifier, that is linked to 1 or more other verifiers, and defines a security policy such as 2 out of 3
-linked verification methods need to report a message as verified.
-
-### Prover
-
-The prover contract is responsible for constructing proofs of routed messages, to be passed to external chains. The most
-common example of this is the [`multisig-prover`](contracts/multisig_prover.md) that constructs signed payload of routed
-messages, which are then relayed (permissionlessly) to an external chain. In this example, the prover fetches the
-messages from the gateway, and interacts with the multisig contract to conduct the signing.
-
-### Multisig Contract
-
-[`multisig`](contracts/multisig.md) is responsible for signing arbitrary blobs of data. Contracts register with the
-multisig contract to generate a key id, and then use that key id to initiate signing sessions. Off chain verifiers
-associated with the key id sign messages when new signing sessions are created.
+### Multisig
+[`multisig`](contracts/multisig.md) is the generic CosmWasm contract on Axelar that coordinates signing sessions. The xrpl-multisig-prover creates a session whenever it builds a new XRPL transaction; verifiers submit per-signer signature shares; once quorum is met the contract emits `signing_completed` and publishes the assembled signatures.
 
 ### Service Registry
+[`service-registry`](contracts/service_registry.md) tracks verifier bonding, authorization, and per-chain support. The xrpl-voting-verifier and xrpl-multisig-prover both query it for the active verifier set when opening polls and signing sessions.
 
-[`service-registry`](contracts/service_registry.md) is responsible for tracking verifiers associated with specific
-services. Two example services are voting and signing. Verifiers must be authorized to join a service via governance
-vote. Once authorized, verifiers must also bond a sufficient amount of stake before becoming active in the service.
-Services query the service registry to create weighted snapshots of the active verifier set.
+### Coordinator
+[`coordinator`](contracts/coordinator.md) tracks per-chain prover registrations and the verifier sets active on each chain. It serves as the unbonding gate for the service registry, so verifiers cannot withdraw stake while still active on any chain.
+
+### Axelarnet Gateway
+The [Axelarnet Gateway](https://github.com/axelarnetwork/axelar-amplifier/tree/main/contracts/axelarnet-gateway) (in the upstream repo) is the contract through which Axelar-resident contracts such as the ITS Hub send and receive cross-chain messages via the generic router. Every ITS message in either direction between XRPL and another chain passes through it.
+
+### ITS Hub
+The [ITS Hub](https://github.com/axelarnetwork/axelar-amplifier/tree/main/contracts/interchain-token-service) (in the upstream repo) is the chain-agnostic router for Interchain Token Service messages. It validates the source ITS edge, tracks per-chain token supply, and rescales amounts between chains with different decimal precisions. The `xrpl-gateway` sends `SEND_TO_HUB` envelopes to this contract when translating an XRPL inbound interchain transfer; the Hub re-wraps them as `RECEIVE_FROM_HUB` for delivery to the destination chain. The same machinery runs in reverse when a source chain sends an ITS transfer destined for XRPL.
+
+## Message Semantics
+
+The [xrpl-gateway](contracts/xrpl_gateway.md) accepts an XRPL-native union type, `XRPLMessage`, whose variants capture the five categories of XRPL transactions the bridge cares about. User-facing variants like `InterchainTransferMessage` and `CallContractMessage` are translated into generic `router_api::Message` objects and forwarded through the router. `AddGasMessage` is also user-initiated: it tops up gas for an existing cross-chain message and is confirmed on the gateway, but it does not become a router message. Operational/control variants such as `AddReservesMessage` and `ProverMessage` are handled directly by the XRPL-specific contracts and also never become router messages.
+
+The full definition lives in upstream [`packages/xrpl-types/src/msg.rs`](https://github.com/axelarnetwork/axelar-amplifier/blob/main/packages/xrpl-types/src/msg.rs).
+
+```rust
+pub enum XRPLMessage {
+    InterchainTransferMessage(XRPLInterchainTransferMessage),
+    CallContractMessage(XRPLCallContractMessage),
+    AddGasMessage(XRPLAddGasMessage),
+    AddReservesMessage(XRPLAddReservesMessage),
+    ProverMessage(XRPLProverMessage),
+}
+```
+
+### CrossChainId construction on XRPL
+
+The `CrossChainId` struct itself (defined in upstream [`packages/router-api/src/primitives.rs`](https://github.com/axelarnetwork/axelar-amplifier/blob/main/packages/router-api/src/primitives.rs)) is the generic Amplifier identifier shared across all chains. What differs is how its `message_id` field is populated for XRPL traffic: for `InterchainTransferMessage` and `CallContractMessage`, the [xrpl-gateway](contracts/xrpl_gateway.md) constructs the cc_id as:
+
+```rust
+CrossChainId {
+    source_chain: "xrpl",
+    message_id: "0x<hex of the 32-byte XRPL tx hash>",
+}
+```
+
+The transaction hash is XRPL's [SHA-512-half](glossary.md#sha-512-half) of the signed transaction (32 bytes), rendered as a `0x`-prefixed hex string. The other three variants do not become generic router messages and therefore have no associated `CrossChainId`.
+
+### Inbound user payments
+
+`InterchainTransferMessage` and `CallContractMessage` are the two variants reported by the relayer when a user sends an XRPL `Payment` to the multisig gateway account. They are verified by the [xrpl-voting-verifier](contracts/xrpl_voting_verifier.md) and routed by the [xrpl-gateway](contracts/xrpl_gateway.md).
+
+```rust
+pub struct XRPLInterchainTransferMessage {
+    pub tx_id: HexTxHash,                  // the user's XRPL Payment tx hash
+    pub source_address: XRPLAccountId,     // the XRPL user (20-byte account id)
+    pub destination_chain: ChainNameRaw,
+    pub destination_address: nonempty::String, // raw bytes of destination addr, hex
+    pub payload_hash: Option<[u8; 32]>,    // optional, only set if a payload memo is present
+    pub transfer_amount: XRPLPaymentAmount, // tokens to deliver (excluding gas)
+    pub gas_fee_amount: XRPLPaymentAmount,  // gas, in the same denomination
+}
+
+pub struct XRPLCallContractMessage {
+    pub tx_id: HexTxHash,
+    pub source_address: XRPLAccountId,
+    pub destination_chain: ChainNameRaw,
+    pub destination_address: nonempty::String,
+    pub payload_hash: [u8; 32],            // required; pure GMP always has a payload
+    pub gas_fee_amount: XRPLPaymentAmount, // equal to the Payment Amount (no transfer component)
+}
+```
+
+### Inbound user/operator top-ups
+
+`AddGasMessage` lets a user top up the gas allocation of an existing cross-chain message they previously initiated. `AddReservesMessage` lets an operator (typically the relayer itself) top up the multisig account's XRP reserve. Both are verified by the [xrpl-voting-verifier](contracts/xrpl_voting_verifier.md); `AddGasMessage` is confirmed on the [xrpl-gateway](contracts/xrpl_gateway.md), `AddReservesMessage` on the [xrpl-multisig-prover](contracts/xrpl_multisig_prover.md). Neither produces a `router_api::Message`.
+
+```rust
+pub struct XRPLAddGasMessage {
+    pub tx_id: HexTxHash,
+    pub msg_id: HexTxHash,             // tx_id of the original message being topped up
+    pub amount: XRPLPaymentAmount,
+    pub source_address: XRPLAccountId,
+}
+
+pub struct XRPLAddReservesMessage {
+    pub tx_id: HexTxHash,
+    pub amount: u64,                   // XRP-only, denominated in drops
+}
+```
+
+### Outbound prover confirmation
+
+`ProverMessage` is the inverse direction: the multisig account has just submitted a prover-built XRPL transaction (a Payment, SignerListSet, TicketCreate, or TrustSet) and the relayer is reporting that inclusion back to Axelar so the [xrpl-multisig-prover](contracts/xrpl_multisig_prover.md) can release the ticket, clear the payload, and (for SignerListSet) promote the new verifier set.
+
+```rust
+pub struct XRPLProverMessage {
+    pub tx_id: HexTxHash,           // the on-ledger tx hash
+    pub unsigned_tx_hash: HexTxHash, // the canonical-serialization hash; used to match the prover's stored payload
+}
+```
+
+### Supporting XRPL types
+
+These types appear inside the message variants above and are also defined in `packages/xrpl-types`.
+
+```rust
+/// 20-byte XRPL account id. Display form is the base58 classic address (rXXX...).
+pub struct XRPLAccountId([u8; 20]);
+
+/// Either native XRP (drops) or an issued currency amount.
+/// See "Supported Values and Tokens" for the full conversion rules.
+pub enum XRPLPaymentAmount {
+    Drops(u64),                          // native XRP
+    Issued(XRPLToken, XRPLTokenAmount),  // IOU
+}
+
+pub struct XRPLToken {
+    pub issuer: XRPLAccountId,
+    pub currency: XRPLCurrency,
+}
+
+/// 160-bit XRPL currency code (3-char ASCII or 40-char hex form).
+pub struct XRPLCurrency([u8; 20]);
+
+/// XRPL's mantissa+exponent format. See "Supported Values and Tokens"
+/// for the canonicalization rules.
+pub struct XRPLTokenAmount {
+    mantissa: u64,
+    exponent: i64,
+}
+```
+
+For the full conversion rules between these XRPL amount types and `Uint256` (the form the ITS Hub uses), and for the constraints on currency codes, addresses, and trust lines, see [Supported Values and Tokens on XRPL](tokens-and-amounts.md).

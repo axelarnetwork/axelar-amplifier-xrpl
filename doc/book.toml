@@ -1,6 +1,5 @@
 [book]
 language = "en"
-multilingual = false
 src = "src"
 title = "Amplifier Documentation"
 
@@ -15,6 +14,9 @@ command = "mdbook-mermaid"
 
 [output.html]
 
-[output.linkcheck]
-warning-policy = "error"
-traverse-parent-directories = true
+# linkcheck disabled: mdbook-linkcheck v0.7.7 is incompatible with the
+# current mdbook RenderContext schema. Re-enable once upstream catches up,
+# or run a separate link checker (e.g. `lychee doc/src/**/*.md`).
+# [output.linkcheck]
+# warning-policy = "error"
+# traverse-parent-directories = true
