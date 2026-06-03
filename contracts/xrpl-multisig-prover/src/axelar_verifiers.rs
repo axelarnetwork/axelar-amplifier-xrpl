@@ -110,12 +110,18 @@ pub fn make_verifier_set(
         .active_verifiers(config.service_name.clone(), config.chain_name.to_owned())
         .map_err(|_| ContractError::FailedToBuildVerifierSet)?;
 
-    let min_num_verifiers = service_registry
+    let service = service_registry
         .service(config.service_name.clone())
-        .map_err(|_| ContractError::FailedToBuildVerifierSet)?
-        .min_num_verifiers;
+        .map_err(|_| ContractError::FailedToBuildVerifierSet)?;
+    let min_num_verifiers = service.min_num_verifiers;
 
-    let max_num_verifiers = xrpl_multisig::MAX_SIGNERS;
+    // XRPL's SignerListSet is capped at MAX_SIGNERS entries: that is a hard ledger
+    // limit and therefore the absolute ceiling. An operator may request a smaller
+    // set via the service's max_num_verifiers override, but never a larger one.
+    let max_num_verifiers = service
+        .max_num_verifiers
+        .map(|configured| configured.min(u16::from(xrpl_multisig::MAX_SIGNERS)))
+        .unwrap_or_else(|| u16::from(xrpl_multisig::MAX_SIGNERS));
 
     let multisig: multisig::Client = client::ContractClient::new(querier, &config.multisig).into();
 
@@ -135,8 +141,9 @@ pub fn make_verifier_set(
     }
 
     if num_of_participants > max_num_verifiers as usize {
+        // keep the highest-weight verifiers (descending by weight)
         participants_with_pubkeys
-            .sort_by(|(a, _), (b, _)| a.weight.into_inner().cmp(&b.weight.into_inner()));
+            .sort_by(|(a, _), (b, _)| b.weight.into_inner().cmp(&a.weight.into_inner()));
         participants_with_pubkeys.truncate(max_num_verifiers as usize);
     }
 
