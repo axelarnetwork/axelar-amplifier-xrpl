@@ -156,8 +156,7 @@ mod tests {
     use assert_ok::assert_ok;
     use cosmrs::cosmwasm::MsgExecuteContract;
     use cosmrs::tx::Msg;
-    use cosmwasm_std;
-    use cosmwasm_std::Uint128;
+    use cosmwasm_std::{self, Uint128};
     use events::Event;
     use hex::ToHex;
     use multisig::key::KeyType;
