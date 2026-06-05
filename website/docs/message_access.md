@@ -1,3 +1,8 @@
+---
+title: Access Control
+sidebar_position: 10
+---
+
 # Access Control for Contract Messages
 
 Each execute message in the Amplifier contracts is annotated with a permission scope. The vocabulary is defined by the

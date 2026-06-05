@@ -1,3 +1,8 @@
+---
+title: Service Registry
+sidebar_position: 1
+---
+
 # Service Registry
 
 The service registry keeps track of the pool of verifiers that vote and sign for each chain. The core functionalities,

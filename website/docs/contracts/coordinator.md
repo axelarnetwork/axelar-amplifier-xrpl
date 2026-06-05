@@ -1,3 +1,8 @@
+---
+title: Coordinator
+sidebar_position: 7
+---
+
 # Coordinator
 
 Some contracts, like the multisig provers, are deployed per chain and unknown to one another. The coordinator contract

@@ -1,3 +1,8 @@
+---
+title: XRPL Multisig Prover
+sidebar_position: 3
+---
+
 # XRPL Multisig Prover
 
 Source: [`contracts/xrpl-multisig-prover`](https://github.com/axelarnetwork/axelar-amplifier-xrpl/tree/main/contracts/xrpl-multisig-prover).

@@ -1,0 +1,154 @@
+/**
+ * Theme overrides for the XRPL ↔ Axelar Amplifier docs.
+ * Axelar brand purple; XRPL accents in deep blue/black.
+ */
+
+:root {
+  --ifm-color-primary: #4b1aef;
+  --ifm-color-primary-dark: #3a13c4;
+  --ifm-color-primary-darker: #3611b9;
+  --ifm-color-primary-darkest: #2c0e98;
+  --ifm-color-primary-light: #6232ff;
+  --ifm-color-primary-lighter: #7044ff;
+  --ifm-color-primary-lightest: #8b65ff;
+
+  --ifm-code-font-size: 92%;
+  --ifm-font-family-base:
+    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --ifm-heading-font-family: var(--ifm-font-family-base);
+
+  --docusaurus-highlighted-code-line-bg: rgba(75, 26, 239, 0.10);
+}
+
+[data-theme='dark'] {
+  --ifm-color-primary: #a89bff;
+  --ifm-color-primary-dark: #8e7eff;
+  --ifm-color-primary-darker: #7f6eff;
+  --ifm-color-primary-darkest: #5b46f0;
+  --ifm-color-primary-light: #bbb1ff;
+  --ifm-color-primary-lighter: #c8c0ff;
+  --ifm-color-primary-lightest: #e1dcff;
+
+  --docusaurus-highlighted-code-line-bg: rgba(168, 155, 255, 0.18);
+}
+
+/* Slightly larger title sizing to feel more "gitbook" */
+h1 {
+  font-size: 2.25rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin-bottom: 1rem;
+}
+
+h2 {
+  letter-spacing: -0.005em;
+}
+
+/* Comfortable reading width */
+.theme-doc-markdown {
+  font-size: 1.0rem;
+  line-height: 1.65;
+}
+
+/* Mermaid diagrams centered with subtle padding */
+.docusaurus-mermaid-container {
+  display: flex;
+  justify-content: center;
+  margin: 1.5rem 0;
+}
+
+/* Tables a touch more breathable */
+table {
+  display: table;
+  width: 100%;
+  border-collapse: collapse;
+}
+
+table th,
+table td {
+  padding: 0.55rem 0.75rem;
+}
+
+/* Inline code: subtle tint that matches the primary */
+code {
+  background: rgba(75, 26, 239, 0.07);
+  border: 1px solid rgba(75, 26, 239, 0.12);
+  border-radius: 4px;
+  padding: 0.08rem 0.35rem;
+}
+
+[data-theme='dark'] code {
+  background: rgba(168, 155, 255, 0.10);
+  border-color: rgba(168, 155, 255, 0.18);
+}
+
+/* Don't double-style code inside pre blocks */
+pre code {
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+/* === Ticket-pool diagrams === */
+.ticket-diagram {
+  margin: 1.5em 0;
+}
+
+.ticket-row {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  font-family: var(--ifm-font-family-monospace);
+}
+
+.ticket-row__labels {
+  display: flex;
+  justify-content: center;
+  gap: 24px;
+  font-size: 0.85em;
+  color: var(--ifm-color-emphasis-700);
+  margin-bottom: 6px;
+}
+
+.ticket-row__label-confirmed { width: 168px; text-align: center; }
+.ticket-row__label-available { width: 280px; text-align: center; }
+
+.ticket-cell {
+  width: 54px;
+  padding: 14px 0;
+  text-align: center;
+  border: 1px solid #888;
+  border-radius: 2px;
+  line-height: 1.2;
+}
+
+.ticket-cell--stacked { padding: 6px 0; }
+.ticket-cell--confirmed { background: #FBD9A8; border-color: #B8915F; }
+.ticket-cell--available { background: #D4E6F5; border-color: #6B95C4; }
+.ticket-cell--next       { background: #C5E6B3; border-color: #7CA56A; }
+
+[data-theme='dark'] .ticket-cell--confirmed { background: #6f4a1f; border-color: #c08a4c; color: #fff; }
+[data-theme='dark'] .ticket-cell--available { background: #2c4a66; border-color: #6fa8db; color: #fff; }
+[data-theme='dark'] .ticket-cell--next       { background: #355c2a; border-color: #92d077; color: #fff; }
+
+.ticket-pointers {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  margin-top: 4px;
+  font-size: 0.85em;
+  color: var(--ifm-color-emphasis-700);
+}
+
+.ticket-pointers__spacer { width: 54px; }
+.ticket-pointers__arrow  { width: 54px; text-align: center; }
+.ticket-pointers__caption {
+  width: 118px;
+  text-align: center;
+}
+
+/* Admonition tweaks: a little softer */
+.alert {
+  border-radius: 8px;
+  border-left-width: 4px;
+}

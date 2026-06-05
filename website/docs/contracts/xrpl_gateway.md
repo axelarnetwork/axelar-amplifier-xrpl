@@ -1,3 +1,8 @@
+---
+title: XRPL Gateway
+sidebar_position: 1
+---
+
 # XRPL Gateway
 
 Source: [`contracts/xrpl-gateway`](https://github.com/axelarnetwork/axelar-amplifier-xrpl/tree/main/contracts/xrpl-gateway).

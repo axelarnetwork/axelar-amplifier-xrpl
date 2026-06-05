@@ -1,3 +1,8 @@
+---
+title: XRPL Voting Verifier
+sidebar_position: 2
+---
+
 # XRPL Voting Verifier
 
 Source: [`contracts/xrpl-voting-verifier`](https://github.com/axelarnetwork/axelar-amplifier-xrpl/tree/main/contracts/xrpl-voting-verifier).

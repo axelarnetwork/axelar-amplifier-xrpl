@@ -1,3 +1,8 @@
+---
+title: Multisig
+sidebar_position: 3
+---
+
 # Multisig contract
 
 This contract is used by prover contracts during proof construction to start a signing session and collect signatures
@@ -25,7 +30,7 @@ b--Multisig (query)-->m
   so far, and the verifier set with participant information. The final proof is assembled by the prover once the
   multisig session is completed.
 
-<br>
+<br />
 
 ## Signing Sequence Diagram
 

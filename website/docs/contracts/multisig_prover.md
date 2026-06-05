@@ -1,3 +1,8 @@
+---
+title: Multisig Prover
+sidebar_position: 6
+---
+
 # Multisig prover contract
 
 > **Not used on the XRPL side.** XRPL outbound transactions are built by the [XRPL Multisig Prover](xrpl_multisig_prover.md), which builds XRPL-native transactions (`Payment`, `SignerListSet`, `TicketCreate`, `TrustSet`), manages tickets and the XRP fee reserve, and uses the XRPL `SMT\0`-prefixed SHA-512-half multi-signing digest. The generic `multisig-prover` documented here is the template deployed for most other connected amplifier chains.
@@ -82,7 +87,7 @@ pub enum Event {
 }
 ```
 
-<br>
+<br />
 
 ## Proof construction graph
 

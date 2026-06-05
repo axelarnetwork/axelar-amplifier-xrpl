@@ -1,3 +1,8 @@
+---
+title: Message Flows
+sidebar_position: 2
+---
+
 # Message Flows to and from XRPL
 
 This document gives a high level walkthrough of what happens when a cross chain message moves from XRPL to another chain connected to Axelar, or from another chain to XRPL. Each on-Axelar contract mentioned below links inline to its per-contract page.
