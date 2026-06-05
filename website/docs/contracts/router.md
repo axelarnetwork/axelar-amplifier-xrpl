@@ -1,8 +1,13 @@
+---
+title: Router
+sidebar_position: 2
+---
+
 # Router Contract
 
 The router contract is responsible for routing messages to and from registered gateways, as well as handling chain
 registration, gateway upgrades, chain freezing, and an emergency global routing kill switch.
-<br>
+<br />
 Governance registers chains and upgrades gateway addresses. The router admin or governance can freeze chains and
 toggle the global routing kill switch.
 

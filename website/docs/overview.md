@@ -1,6 +1,12 @@
-# Axelar<>XRPL Integration Overview
+---
+title: Overview
+sidebar_position: 1
+slug: /
+---
 
-The Axelar<>XRPL integration enables message passing between XRPL and other Axelar-supported blockchains via the Axelar Amplifier network. Amplifier is a set of CosmWasm contracts on the Axelar chain that lets any external chain connect to the Axelar interchain network without changes to Axelar's core. Each connected chain plugs in through a small group of per-chain contracts (Gateway, Voting Verifier, and Multisig Prover) used to verify and route messages to a destination chain. The integration allows transferring XRP and tokens issued on XRPL to other supported chains and back. It also supports bridging non-XRPL tokens between their native blockchain and XRPL, as well as sending messages to other chains (General Message Passing).
+# Axelar-XRPL Integration Overview
+
+The Axelar-XRPL integration enables message passing between XRPL and other Axelar-supported blockchains via the Axelar Amplifier network. Amplifier is a set of CosmWasm contracts on the Axelar chain that lets any external chain connect to the Axelar interchain network without changes to Axelar's core. Each connected chain plugs in through a small group of per-chain contracts (Gateway, Voting Verifier, and Multisig Prover) used to verify and route messages to a destination chain. The integration allows transferring XRP and tokens issued on XRPL to other supported chains and back. It also supports bridging non-XRPL tokens between their native blockchain and XRPL, as well as sending messages to other chains (General Message Passing).
 
 XRPL is different from other chain integrations because it has no smart contract layer. Instead, the XRPL gateway is implemented as a multisig account whose signers are the active Axelar verifier set, and that signer set is kept in sync by SignerListSet transactions on XRPL. Users initiate cross-chain actions by sending an XRPL `Payment` to that account with structured `Memos`; the Amplifier side then processes the transaction through the three XRPL-specific contracts ([xrpl-gateway](contracts/xrpl_gateway.md), [xrpl-voting-verifier](contracts/xrpl_voting_verifier.md), [xrpl-multisig-prover](contracts/xrpl_multisig_prover.md)), along with the generic Amplifier contracts and the ITS Hub.
 

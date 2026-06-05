@@ -1,3 +1,8 @@
+---
+title: Firewalling and Flow Limits
+sidebar_position: 5
+---
+
 # Firewalling and Flow Limits
 
 The Axelar Amplifier protocol's hub-and-spoke topology is the basis of a security property called **firewalling**: a single compromised chain cannot exfiltrate more of a token from the bridged system than has legitimately been deposited into it. This page explains how the property is enforced and when it applies.

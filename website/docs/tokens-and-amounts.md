@@ -1,3 +1,8 @@
+---
+title: Supported Values and Tokens
+sidebar_position: 3
+---
+
 # Supported Values and Tokens on XRPL
 
 This page explains everything a developer or integrator needs to know about which tokens the bridge supports, how amounts are represented on XRPL, how amounts get converted when bridging in either direction, and what XRPL-side constraints (trust lines, reserves, currency codes) you have to satisfy. The relevant source lives in [`packages/xrpl-types`](https://github.com/axelarnetwork/axelar-amplifier/tree/main/packages/xrpl-types), the [XRPL Gateway](contracts/xrpl_gateway.md), and the [XRPL Multisig Prover](contracts/xrpl_multisig_prover.md).

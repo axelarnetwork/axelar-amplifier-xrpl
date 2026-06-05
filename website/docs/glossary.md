@@ -1,3 +1,8 @@
+---
+title: Glossary
+sidebar_position: 11
+---
+
 # Glossary
 
 This page defines the XRPL and Axelar specific terms used in the rest of the book. 
@@ -135,7 +140,7 @@ The CosmWasm contract that runs polls over messages reported from an external ch
 ## Bridge specific terms
 
 ### AddGas / AddGasMessage
-An XRPL message variant used to top up the gas allocation of an in flight cross chain message that the user underfunded. The user sends an XRPL payment to the multisig account with memo `type=add_gas` and `msg_id=<original message id>`. After voting verifier confirmation the additional amount is credited to the gateway's accrued gas tally.
+An XRPL message variant used to top up the gas allocation of an in flight cross chain message that the user underfunded. The user sends an XRPL payment to the multisig account with memo `type=add_gas` and `msg_id=<original-message-id>`. After voting verifier confirmation the additional amount is credited to the gateway's accrued gas tally.
 
 ### AddReserves / AddReservesMessage
 An XRPL message variant used by operators to top up the multisig account's XRP balance so it can keep paying transaction fees and meet its reserve requirements. The operator sends XRP to the multisig account with memo `type=add_reserves`. After confirmation the prover's tracked fee reserve increases.

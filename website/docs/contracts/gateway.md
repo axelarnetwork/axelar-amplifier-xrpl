@@ -1,3 +1,8 @@
+---
+title: Gateway
+sidebar_position: 4
+---
+
 # Gateway
 
 > **Not used on the XRPL side.** XRPL traffic uses the [XRPL Gateway](xrpl_gateway.md), which absorbs the gateway role plus the ITS edge, the token-id registry, and gas accounting (responsibilities that on other chains live in separate contracts). The generic `gateway` contract documented here is the template deployed for most other connected amplifier chains, so a cross-chain message from XRPL to, say, XRPL-EVM still passes through XRPL-EVM's generic gateway on the destination side.

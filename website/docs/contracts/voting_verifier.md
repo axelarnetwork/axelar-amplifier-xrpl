@@ -1,3 +1,8 @@
+---
+title: Voting Verifier
+sidebar_position: 5
+---
+
 # Voting Verifier
 
 > **Not used on the XRPL side.** XRPL messages are verified by the [XRPL Voting Verifier](xrpl_voting_verifier.md), which handles XRPL's union message type with five variants (`InterchainTransferMessage`, `CallContractMessage`, `AddGasMessage`, `AddReservesMessage`, `ProverMessage`). The generic `voting-verifier` documented here is the template deployed for most other connected amplifier chains.
