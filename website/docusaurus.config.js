@@ -5,7 +5,7 @@ import {themes as prismThemes} from 'prism-react-renderer';
 const config = {
   title: 'XRPL ↔ Axelar Amplifier',
   tagline: 'Bridging XRPL with the Axelar interchain network',
-  favicon: 'img/favicon.svg',
+  favicon: 'img/favicon.ico',
 
   url: 'https://xrpl.docs.axelar.network',
   baseUrl: '/',
