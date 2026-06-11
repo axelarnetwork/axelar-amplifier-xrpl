@@ -14,10 +14,10 @@ edition = "2021"
 
 [workspace.dependencies]
 alloy-primitives = { version = "0.7.6", default-features = false, features = [
-  "std",
+    "std",
 ] }
 alloy-sol-types = { version = "0.7.6", default-features = false, features = [
-  "std",
+    "std",
 ] }
 anyhow = "1.0.89"
 assert_ok = "1.0"
@@ -39,7 +39,7 @@ cw2 = "2.0.0"
 ed25519-dalek = { version = "2.1.1", default-features = false }
 error-stack = { version = "0.4.0", features = ["eyre"] }
 ethers-contract = { version = "2.0.14", default-features = false, features = [
-  "abigen",
+    "abigen",
 ] }
 ethers-core = "2.0.14"
 events = { version = "^1.0.0", path = "packages/events" }
