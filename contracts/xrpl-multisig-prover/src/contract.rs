@@ -344,7 +344,7 @@ mod tests {
         assert_eq!(verifier_set.signers.len(), max_signers);
 
         // Tests that the highest-weight verifiers are retained instead of the lowest-weight ones
-        let contains = |addr: &Addr| verifier_set.signers.iter().any(|s| &s.address == addr);
+        let contains = |addr: &Addr| verifier_set.signers.iter().any(|s| s.address == *addr);
         assert!(!contains(&lowest_weight_addr));
         for op in operators.iter().skip(1) {
             assert!(contains(&op.address), "missing {}", op.address);
