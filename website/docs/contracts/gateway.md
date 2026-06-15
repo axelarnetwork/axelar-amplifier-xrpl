@@ -1,4 +1,11 @@
+---
+title: Gateway
+sidebar_position: 4
+---
+
 # Gateway
+
+> **Not used on the XRPL side.** XRPL traffic uses the [XRPL Gateway](xrpl_gateway.md), which absorbs the gateway role plus the ITS edge, the token-id registry, and gas accounting (responsibilities that on other chains live in separate contracts). The generic `gateway` contract documented here is the template deployed for most other connected amplifier chains, so a cross-chain message from XRPL to, say, XRPL-EVM still passes through XRPL-EVM's generic gateway on the destination side.
 
 The name `gateway` used in this documentation refers to those entities which reside
 on axelar chain, which can also be called internal gateways. On the other hand we have
@@ -7,7 +14,7 @@ external gateways, which are gateways deployed on external chains connected to A
 The gateway contract is how messages enter the amplifier protocol.
 Here are the steps taken throughout the lifecycle of
 a message:
-1. User sends a message to the external gateway. We call this incoming message.
+1. User sends a message to the external gateway. We call this an incoming message.
 2. Incoming messages are sent to the gateway via `VerifyMessages`.
 3. The gateway calls `VerifyMessages` on the verifier, which submits the messages for verification (or just returns true if already verified).
 4. The messages are verified asynchronously, and the verification status is stored in the verifier.
@@ -42,7 +49,23 @@ pub struct InstantiateMsg {
     pub verifier_address: String,
     pub router_address: String,
 }
+
+pub enum ExecuteMsg {
+    // Trigger verification at the linked voting verifier for any of the given messages
+    // that is still unverified. Permission: Any.
+    VerifyMessages(Vec<Message>),
+
+    // Forward the given messages to the next step of the routing layer. If the messages
+    // are coming in from an external chain, they must already be verified.
+    // Permission: Any.
+    RouteMessages(Vec<Message>),
+}
+
+pub enum QueryMsg {
+    // Messages stored for delivery to the chain corresponding to this gateway, queried
+    // by the multisig prover during proof construction.
+    OutgoingMessages(Vec<CrossChainId>),
+}
 ```
 
-As you can see, the gateway only needs to know the address of the two contracts it
-works with, which are voting verifier and router.
+The gateway only needs to know the address of the two contracts it works with: the voting verifier and the router.

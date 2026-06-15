@@ -37,8 +37,8 @@ itertools = { workspace = true }
 lazy_static = "1.4.0"
 num-traits = { workspace = true }
 regex = { version = "1.10.0", default-features = false, features = [
-  "perf",
-  "std",
+    "perf",
+    "std",
 ] }
 report = { workspace = true }
 schemars = "0.8.10"
