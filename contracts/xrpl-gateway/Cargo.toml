@@ -1,6 +1,6 @@
 [package]
 name = "xrpl-gateway"
-version = "1.3.2"
+version = "1.3.3"
 rust-version = { workspace = true }
 edition = { workspace = true }
 description = "XRPL gateway contract"
