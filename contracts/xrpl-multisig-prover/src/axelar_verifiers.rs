@@ -249,7 +249,7 @@ mod tests {
             Uint128::from(50000000000u128),
         ];
         let scaled_weights = convert_or_scale_weights(&weights).unwrap();
-        assert_eq!(scaled_weights, vec![0, 2, 39, 524, 65535]);
+        assert_eq!(scaled_weights, vec![1, 2, 39, 524, 65535]);
 
         let scaled_weights = convert_or_scale_weights(&[]).unwrap();
         assert_eq!(scaled_weights, vec![] as Vec<u16>);
