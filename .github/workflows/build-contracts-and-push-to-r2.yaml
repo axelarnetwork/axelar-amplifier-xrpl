@@ -1,4 +1,4 @@
-name: Amplifier wasm contracts - Build wasm binaries (no R2 upload)
+name: Amplifier wasm contracts - Upload wasm binaries to Cloudflare R2 bucket
 
 on:
   push:
@@ -18,7 +18,7 @@ on:
 
 jobs:
   compile-and-upload:
-    name: Compile contracts (no R2 upload)
+    name: Compile contracts and push to R2
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -156,11 +156,23 @@ jobs:
           echo "r2-destination-dir=./releases/cosmwasm/${crate_name}" >> $GITHUB_OUTPUT
 
 
-      # R2 upload disabled on this branch: build and generate the bytecode only.
-      # The compiled artifacts are published as GitHub Actions run artifacts so
-      # they remain downloadable without being pushed to Cloudflare R2.
-      - name: Upload compiled bytecode as workflow artifact
-        uses: actions/upload-artifact@v4
+      - uses: ryand56/r2-upload-action@v1.3.2
+        if: steps.check-release.outputs.is-release == 'true'
         with:
-          name: wasm-contracts
-          path: ${{ steps.compile-contracts.outputs.wasm-directory }}
+          r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
+          r2-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_CF }}
+          r2-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_CF }}
+          r2-bucket: ${{ secrets.R2_BUCKET }}
+          source-dir: ${{ steps.prepare-release.outputs.release-artifacts-dir }}
+          destination-dir: ${{ steps.prepare-release.outputs.r2-destination-dir }}
+
+
+      - uses: ryand56/r2-upload-action@v1.3.2
+        if: steps.check-release.outputs.is-release != 'true'
+        with:
+          r2-account-id: ${{ secrets.R2_ACCOUNT_ID }}
+          r2-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_CF }}
+          r2-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_CF }}
+          r2-bucket: ${{ secrets.R2_BUCKET }}
+          source-dir: ${{ steps.compile-contracts.outputs.wasm-directory }}
+          destination-dir: ./pre-releases/cosmwasm/
