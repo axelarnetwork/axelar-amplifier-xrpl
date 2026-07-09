@@ -281,19 +281,21 @@ pub fn translate_to_interchain_transfer(
     let amount = match transfer_amount.clone() {
         XRPLPaymentAmount::Drops(drops) => Uint256::from(drops),
         XRPLPaymentAmount::Issued(_token, token_amount) => {
-            let destination_decimals = query::token_instance(
+            // the ITS hub re-scales from XRPL's decimals to
+            // the destination's when it routes the transfer
+            let xrpl_decimals = query::token_instance(
                 querier,
                 config.its_hub.clone(),
-                destination_chain.clone(),
+                config.chain_name.clone().into(),
                 token_id,
             )?
             .decimals;
 
-            if destination_decimals > MAX_TOKEN_DECIMALS {
-                return Err(report!(Error::InvalidDecimals(destination_decimals)));
+            if xrpl_decimals > MAX_TOKEN_DECIMALS {
+                return Err(report!(Error::InvalidDecimals(xrpl_decimals)));
             }
 
-            scale_to_decimals(token_amount, destination_decimals).change_context(
+            scale_to_decimals(token_amount, xrpl_decimals).change_context(
                 Error::InvalidTransferAmount {
                     destination_chain: destination_chain.to_owned(),
                     amount: transfer_amount.to_owned(),
@@ -900,11 +902,25 @@ mod test {
 
     use axelar_core_std::nexus;
     use axelar_core_std::query::AxelarQueryMsg;
-    use cosmwasm_std::testing::{MockQuerier, MockQuerierCustomHandlerResult};
-    use cosmwasm_std::{ContractResult, QuerierWrapper, SystemResult};
+    use axelar_wasm_std::msg_id::HexTxHash;
+    use axelar_wasm_std::nonempty;
+    use cosmwasm_std::testing::{mock_dependencies, MockQuerier, MockQuerierCustomHandlerResult};
+    use cosmwasm_std::{
+        from_json, to_json_binary, Addr, ContractResult, HexBinary, QuerierWrapper, SystemResult,
+        Uint256, WasmQuery,
+    };
+    use interchain_token_service::{
+        HubMessage, Message as ItsMessage, TokenId, TokenInstance, TokenSupply,
+    };
     use router_api::ChainName;
     use serde::de::DeserializeOwned;
     use serde_json::json;
+    use xrpl_types::msg::XRPLInterchainTransferMessage;
+    use xrpl_types::types::{
+        canonicalize_token_amount, scale_to_decimals, XRPLAccountId, XRPLPaymentAmount, XRPLToken,
+    };
+
+    use crate::state::{self, Config};
 
     pub fn reply_with_tx_hash_and_nonce<C>(
         tx_hash: [u8; 32],
@@ -939,5 +955,96 @@ mod test {
         let chain_name = ChainName::from_str("xrpl").unwrap();
         let cc_id = super::unique_cross_chain_id(&client, chain_name).unwrap();
         goldie::assert!(cc_id.to_string());
+    }
+
+    #[test]
+    fn translate_to_interchain_transfer_scales_with_xrpl_decimals_not_destination() {
+        let its_hub =
+            Addr::unchecked("axelar1aqcj54lzz0rk22gvqgcn8fr5tx4rzwdv5wv5j9dmnacgefvd7wzsy2j2mr");
+        let hub_str = its_hub.to_string();
+        let mut deps = mock_dependencies();
+        deps.querier.update_wasm(move |q| match q {
+            WasmQuery::Smart { contract_addr, msg } if *contract_addr == hub_str => {
+                match from_json::<interchain_token_service::msg::QueryMsg>(msg).unwrap() {
+                    interchain_token_service::msg::QueryMsg::TokenInstance { chain, .. } => {
+                        let decimals = if chain == "xrpl" { 18u8 } else { 6u8 };
+                        SystemResult::Ok(ContractResult::Ok(
+                            to_json_binary(&TokenInstance {
+                                supply: TokenSupply::Untracked,
+                                decimals,
+                            })
+                            .unwrap(),
+                        ))
+                    }
+                    other => panic!("unexpected hub query: {:?}", other),
+                }
+            }
+            other => panic!("unexpected query: {:?}", other),
+        });
+
+        let xrpl_multisig: XRPLAccountId = "rNrjh1KGZk2jBR3wPfAQnoidtFFYQKbQn2".parse().unwrap();
+        let token = XRPLToken {
+            issuer: "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh".parse().unwrap(),
+            currency: "USD".to_string().try_into().unwrap(),
+        };
+        let token_id = TokenId::new([3u8; 32]);
+        state::save_local_token_id(deps.as_mut().storage, &token, &token_id).unwrap();
+
+        let config = Config {
+            verifier: Addr::unchecked("verifier"),
+            router: Addr::unchecked("router"),
+            its_hub: its_hub.clone(),
+            its_hub_chain_name: "axelar".parse().unwrap(),
+            chain_name: "xrpl".parse().unwrap(),
+            xrpl_multisig,
+            xrp_token_id: TokenId::new([0xAAu8; 32]),
+        };
+
+        let token_amount = canonicalize_token_amount(Uint256::from(10u128), 0).unwrap();
+
+        let msg = XRPLInterchainTransferMessage {
+            tx_id: HexTxHash::new([1u8; 32]),
+            source_address: "raNVNWvhUQzFkDDTdEw3roXRJfMJFVJuQo".parse().unwrap(),
+            destination_chain: "solana".parse().unwrap(),
+            destination_address: nonempty::String::try_from(
+                "95181d16cfb23Bc493668C17d973F061e30F2EAF",
+            )
+            .unwrap(),
+            payload_hash: None,
+            transfer_amount: XRPLPaymentAmount::Issued(token.clone(), token_amount.clone()),
+            gas_fee_amount: XRPLPaymentAmount::Drops(10),
+        };
+
+        let (it, _ev) = super::translate_to_interchain_transfer(
+            deps.as_ref().storage,
+            deps.as_ref().querier,
+            &config,
+            &msg,
+            None,
+        )
+        .unwrap();
+
+        let payload: HexBinary = it
+            .message_with_payload
+            .expect("expected a hub message")
+            .payload
+            .into();
+        let amount = match HubMessage::abi_decode(payload.as_slice()).unwrap() {
+            HubMessage::SendToHub {
+                message: ItsMessage::InterchainTransfer(t),
+                ..
+            } => t.amount,
+            other => panic!("expected SendToHub/InterchainTransfer, got {:?}", other),
+        };
+
+        assert_eq!(
+            amount,
+            nonempty::Uint256::try_from(scale_to_decimals(token_amount.clone(), 18).unwrap())
+                .unwrap()
+        );
+        assert_ne!(
+            amount,
+            nonempty::Uint256::try_from(scale_to_decimals(token_amount, 6).unwrap()).unwrap()
+        );
     }
 }

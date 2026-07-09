@@ -19,12 +19,28 @@ jobs:
   release:
     name: Release ${{ github.event.inputs.binary-to-release }}
     runs-on: ubuntu-22.04
+    env:
+      # cargo's built-in git fetcher ignores the insteadOf rewrite below
+      CARGO_NET_GIT_FETCH_WITH_CLI: "true"
     steps:
+      - name: Generate token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.COMMONPREFIX_ROBOT_APP_ID }}
+          private-key: ${{ secrets.COMMONPREFIX_ROBOT_PRIVATE_KEY }}
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.INTEROP_CI_ACTION_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
+      - name: Set up ssh agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.CICD_RSA_KEY }}
+      - name: Configure Git for private repos
+        run: |
+          git config --global url."git@github.com:axelarnetwork".insteadOf https://github.com/axelarnetwork
       - name: Setup variables for sub-project to release
         id: setup-variables
         shell: bash
@@ -55,4 +71,4 @@ jobs:
           major-pattern: ${{ steps.setup-variables.outputs.major-pattern }}
           minor-pattern: ${{ steps.setup-variables.outputs.minor-pattern }}
           change-path: ${{ steps.setup-variables.outputs.change-path }}
-          github_token: ${{ secrets.INTEROP_CI_ACTION_TOKEN }}
+          github_token: ${{ steps.app-token.outputs.token }}

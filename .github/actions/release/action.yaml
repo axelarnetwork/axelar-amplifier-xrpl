@@ -144,8 +144,8 @@ runs:
         inputs.dry-run == 'false' &&
         steps.semantic-version.outputs.changed == 'true'
       run: |
-        git config --global user.email "devops@commonprefix.com"
-        git config --global user.name "Common Prefix CI"
+        git config --global user.email "270450452+commonprefix-robot[bot]@users.noreply.github.com"
+        git config --global user.name "commonprefix-robot[bot]"
         cargo release -x \
           --no-confirm \
           --no-push \

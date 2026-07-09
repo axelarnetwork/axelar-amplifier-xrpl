@@ -277,6 +277,7 @@ pub fn update_admin(deps: DepsMut, new_admin_address: String) -> Result<Response
 
 fn compute_xrpl_amount(
     gateway: &xrpl_gateway::Client,
+    xrpl_chain: ChainNameRaw,
     token_id: TokenId,
     source_chain: ChainNameRaw,
     source_amount: Uint256,
@@ -299,14 +300,14 @@ fn compute_xrpl_amount(
         let xrpl_token = gateway
             .xrpl_token(token_id)
             .map_err(|_| ContractError::FailedToGetXrplToken(token_id))?;
-        let source_decimals = gateway
-            .token_instance_decimals(source_chain.clone(), token_id)
+        let xrpl_decimals = gateway
+            .token_instance_decimals(xrpl_chain.clone(), token_id)
             .map_err(|_| ContractError::FailedToGetTokenInstanceDecimals {
                 token_id: token_id.to_owned(),
-                chain: source_chain.to_owned(),
+                chain: xrpl_chain.to_owned(),
             })?;
         let token_amount =
-            canonicalize_token_amount(source_amount, source_decimals).map_err(|_| {
+            canonicalize_token_amount(source_amount, xrpl_decimals).map_err(|_| {
                 ContractError::InvalidTransferAmount {
                     source_chain: source_chain.to_owned(),
                     amount: source_amount,
@@ -416,6 +417,7 @@ pub fn construct_payment_proof(
 
                     let xrpl_amount = compute_xrpl_amount(
                         gateway,
+                        config.chain_name.clone().into(),
                         interchain_transfer.token_id,
                         source_chain.clone(),
                         interchain_transfer.amount.into(),
@@ -592,5 +594,103 @@ fn next_verifier_set(
             }
         }
         None => Err(ContractError::NoVerifierSet),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use cosmwasm_std::testing::{MockApi, MockQuerier};
+    use cosmwasm_std::{from_json, to_json_binary, QuerierWrapper, Uint256, WasmQuery};
+    use interchain_token_service::TokenId;
+    use router_api::ChainNameRaw;
+    use xrpl_types::types::{canonicalize_token_amount, XRPLPaymentAmount, XRPLToken};
+
+    use super::compute_xrpl_amount;
+
+    const GATEWAY: &str = "gateway";
+    const XRP_TOKEN_ID: [u8; 32] = [0xAA; 32];
+    const XRPL_DECIMALS: u8 = 18;
+    const SOURCE_DECIMALS: u8 = 6;
+
+    fn mock_gateway_querier() -> MockQuerier {
+        let mut querier = MockQuerier::default();
+        querier.update_wasm(|wq| match wq {
+            WasmQuery::Smart { contract_addr, msg }
+                if contract_addr == MockApi::default().addr_make(GATEWAY).as_str() =>
+            {
+                match from_json::<xrpl_gateway::msg::QueryMsg>(msg).unwrap() {
+                    xrpl_gateway::msg::QueryMsg::XrpTokenId => {
+                        Ok(to_json_binary(&TokenId::new(XRP_TOKEN_ID)).into()).into()
+                    }
+                    xrpl_gateway::msg::QueryMsg::XrplToken(_) => Ok(to_json_binary(&XRPLToken {
+                        issuer: "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh".parse().unwrap(),
+                        currency: "USD".to_string().try_into().unwrap(),
+                    })
+                    .into())
+                    .into(),
+                    xrpl_gateway::msg::QueryMsg::TokenInstanceDecimals { chain_name, .. } => {
+                        let decimals = if chain_name == "xrpl" {
+                            XRPL_DECIMALS
+                        } else {
+                            SOURCE_DECIMALS
+                        };
+                        Ok(to_json_binary(&decimals).into()).into()
+                    }
+                    other => panic!("unexpected gateway query: {:?}", other),
+                }
+            }
+            _ => panic!("unexpected query: {:?}", wq),
+        });
+        querier
+    }
+
+    #[test]
+    fn compute_xrpl_amount_canonicalizes_with_xrpl_decimals_not_source() {
+        let querier = mock_gateway_querier();
+        let addr = MockApi::default().addr_make(GATEWAY);
+        let gateway: xrpl_gateway::Client =
+            client::ContractClient::new(QuerierWrapper::new(&querier), &addr).into();
+
+        let token_id = TokenId::new([1; 32]); // not the XRP token id
+        let xrpl_chain: ChainNameRaw = "xrpl".parse().unwrap();
+        let source_chain: ChainNameRaw = "solana".parse().unwrap();
+        let source_amount = Uint256::from(9_000_000_000_000_000_000u128);
+
+        let result =
+            compute_xrpl_amount(&gateway, xrpl_chain, token_id, source_chain, source_amount)
+                .unwrap();
+
+        let token_amount = match result {
+            XRPLPaymentAmount::Issued(_, token_amount) => token_amount,
+            other => panic!("expected Issued amount, got {:?}", other),
+        };
+
+        assert_eq!(
+            token_amount,
+            canonicalize_token_amount(source_amount, XRPL_DECIMALS).unwrap()
+        );
+        assert_ne!(
+            token_amount,
+            canonicalize_token_amount(source_amount, SOURCE_DECIMALS).unwrap()
+        );
+    }
+
+    #[test]
+    fn compute_xrpl_amount_uses_drops_for_xrp() {
+        let querier = mock_gateway_querier();
+        let addr = MockApi::default().addr_make(GATEWAY);
+        let gateway: xrpl_gateway::Client =
+            client::ContractClient::new(QuerierWrapper::new(&querier), &addr).into();
+
+        let result = compute_xrpl_amount(
+            &gateway,
+            "xrpl".parse().unwrap(),
+            TokenId::new(XRP_TOKEN_ID),
+            "solana".parse().unwrap(),
+            Uint256::from(1_234_567u128),
+        )
+        .unwrap();
+
+        assert_eq!(result, XRPLPaymentAmount::Drops(1_234_567));
     }
 }
