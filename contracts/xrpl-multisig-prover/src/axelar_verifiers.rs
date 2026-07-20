@@ -70,7 +70,9 @@ fn convert_or_scale_weights(weights: &[Uint128]) -> Result<Vec<u16>, ContractErr
             let mut result = Vec::with_capacity(weights.len());
             for &weight in weights.iter() {
                 let scaled = weight.multiply_ratio(max_u16_as_uint128, *max_weight);
-                result.push(convert_uint128_to_u16(scaled)?);
+                let scaled_u16 = convert_uint128_to_u16(scaled)?;
+                // Weights cannot be 0 downstream
+                result.push(scaled_u16.max(1));
             }
 
             Ok(result)
@@ -244,7 +246,7 @@ mod tests {
             Uint128::MAX,
         ];
         let scaled_weights = convert_or_scale_weights(&weights).unwrap();
-        assert_eq!(scaled_weights, vec![0, 0, 65534, 65535]);
+        assert_eq!(scaled_weights, vec![1, 1, 65534, 65535]);
 
         let weights = vec![
             Uint128::from(100000u128),
@@ -254,7 +256,7 @@ mod tests {
             Uint128::from(50000000000u128),
         ];
         let scaled_weights = convert_or_scale_weights(&weights).unwrap();
-        assert_eq!(scaled_weights, vec![0, 2, 39, 524, 65535]);
+        assert_eq!(scaled_weights, vec![1, 2, 39, 524, 65535]);
 
         let scaled_weights = convert_or_scale_weights(&[]).unwrap();
         assert_eq!(scaled_weights, vec![] as Vec<u16>);
