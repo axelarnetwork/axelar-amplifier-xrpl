@@ -267,11 +267,17 @@ mod tests {
     const MULTISIG_SESSION_ID: Uint64 = Uint64::one();
 
     pub fn setup_test_case() -> OwnedDeps<MockStorage, MockApi, MockQuerier, Empty> {
+        setup_test_case_with(test_data::operators())
+    }
+
+    fn setup_test_case_with(
+        operators: Vec<TestOperator>,
+    ) -> OwnedDeps<MockStorage, MockApi, MockQuerier, Empty> {
         let mut deps = mock_dependencies();
         let api = deps.api;
 
         deps.querier.update_wasm(mock_querier_handler(
-            test_data::operators(),
+            operators,
             VerificationStatus::SucceededOnSourceChain,
         ));
 
@@ -305,6 +311,44 @@ mod tests {
         .unwrap();
 
         deps
+    }
+
+    #[test]
+    fn make_verifier_set_keeps_highest_weight_when_exceeding_max_signers() {
+        use crate::axelar_verifiers::make_verifier_set;
+        use crate::state::CONFIG;
+
+        let max_signers = crate::xrpl_multisig::MAX_SIGNERS as usize;
+        let api = MockApi::default();
+        let valid_pub_key = test_data::operators()[0].pub_key.clone();
+
+        // One more verifier than XRPL's MAX_SIGNERS, each with a distinct weight (1..=N).
+        let operators: Vec<TestOperator> = (0..=max_signers)
+            .map(|i| TestOperator {
+                address: api.addr_make(&format!("verifier{i}")),
+                pub_key: valid_pub_key.clone(),
+                operator: HexBinary::from(vec![0u8; 20]),
+                weight: Uint128::from(i as u128 + 1),
+                signature: None,
+            })
+            .collect();
+        let lowest_weight_addr = operators[0].address.clone(); // weight == 1
+
+        let deps = setup_test_case_with(operators.clone());
+        let config = CONFIG.load(deps.as_ref().storage).unwrap();
+
+        let verifier_set =
+            make_verifier_set(&config, deps.as_ref().querier, mock_env().block.height).unwrap();
+
+        // truncated to the ledger cap
+        assert_eq!(verifier_set.signers.len(), max_signers);
+
+        // Tests that the highest-weight verifiers are retained instead of the lowest-weight ones
+        let contains = |addr: &Addr| verifier_set.signers.iter().any(|s| s.address == *addr);
+        assert!(!contains(&lowest_weight_addr));
+        for op in operators.iter().skip(1) {
+            assert!(contains(&op.address), "missing {}", op.address);
+        }
     }
 
     fn execute_update_verifier_set(

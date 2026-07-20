@@ -7,7 +7,6 @@ use multisig::multisig::Multisig;
 use multisig::types::MultisigState;
 use multisig::verifier_set::VerifierSet;
 use router_api::Message;
-use service_registry::VERIFIER_WEIGHT;
 use service_registry_api::{AuthorizationState, BondingState, Verifier, WeightedVerifier};
 use xrpl_voting_verifier::msg::MessageStatus;
 
@@ -180,7 +179,7 @@ fn service_registry_mock_querier_handler(
                         authorization_state: AuthorizationState::Authorized,
                         service_name: SERVICE_NAME.to_string(),
                     },
-                    weight: VERIFIER_WEIGHT,
+                    weight: op.weight.try_into().unwrap(),
                 })
                 .collect::<Vec<WeightedVerifier>>(),
         ),
