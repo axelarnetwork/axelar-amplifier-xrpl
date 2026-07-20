@@ -1,6 +1,7 @@
 use axelar_wasm_std::voting::{PollId, PollStatus, Vote, WeightedPoll};
 use axelar_wasm_std::{nonempty, MajorityThreshold, VerificationStatus};
 use cosmwasm_schema::{cw_serde, QueryResponses};
+use cosmwasm_std::HexBinary;
 use msgs_derive::EnsurePermissions;
 use router_api::ChainName;
 use xrpl_types::msg::XRPLMessage;
@@ -81,6 +82,19 @@ pub enum ExecuteMsg {
     // Updates the address of the admin.
     #[permission(Elevated)]
     UpdateAdmin { new_admin_address: String },
+
+    /// Re-hashes stored poll messages. If the hash definition changes,
+    /// this function re-keys them from their old hash to the hash
+    /// computed by the current code. Run manually (in batches) after a change to the
+    /// message hashing scheme, so that previously stored messages can still be looked
+    /// up by their hash.
+    #[permission(Elevated)]
+    RehashPollMessages {
+        /// Hex-encoded 32-byte hash key to start after (exclusive). `None` starts from the beginning.
+        start_after: Option<HexBinary>,
+        /// Maximum number of entries to process in this batch.
+        limit: u32,
+    },
 }
 
 #[cw_serde]

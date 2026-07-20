@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use axelar_wasm_std::hash::Hash;
 use axelar_wasm_std::utils::TryMapExt;
 use axelar_wasm_std::voting::{PollId, PollResults, Vote, WeightedPoll};
 use axelar_wasm_std::{
@@ -7,9 +8,10 @@ use axelar_wasm_std::{
     VerificationStatus,
 };
 use cosmwasm_std::{
-    to_json_binary, Deps, DepsMut, Env, Event, MessageInfo, OverflowError, OverflowOperation,
-    Response, Storage, WasmMsg,
+    to_json_binary, Deps, DepsMut, Env, Event, HexBinary, MessageInfo, Order, OverflowError,
+    OverflowOperation, Response, Storage, WasmMsg,
 };
+use cw_storage_plus::Bound;
 use error_stack::{ensure, report, Report, Result, ResultExt};
 use itertools::Itertools;
 use service_registry::WeightedVerifier;
@@ -311,4 +313,65 @@ pub fn update_admin(deps: DepsMut, new_admin_address: String) -> Result<Response
     permission_control::set_admin(deps.storage, &new_admin)
         .map_err(|_| ContractError::FailedToUpdateAdmin)?;
     Ok(Response::new())
+}
+
+pub fn rehash_poll_messages(
+    deps: DepsMut,
+    start_after: Option<HexBinary>,
+    limit: u32,
+) -> Result<Response, ContractError> {
+    ensure!(limit > 0, ContractError::InvalidLimit);
+
+    let start_after: Option<Hash> = start_after
+        .map(|cursor| {
+            <[u8; 32]>::try_from(cursor.as_slice())
+                .map_err(|_| report!(ContractError::InvalidStartAfter))
+        })
+        .transpose()?;
+
+    let batch: Vec<(Hash, state::PollContent<XRPLMessage>)> = poll_messages()
+        .range(
+            deps.storage,
+            start_after.as_ref().map(Bound::exclusive),
+            None,
+            Order::Ascending,
+        )
+        .take(limit as usize)
+        .collect::<cosmwasm_std::StdResult<Vec<_>>>()
+        .change_context(ContractError::StorageError)?;
+
+    let scanned = batch.len();
+    let done = scanned < limit as usize;
+    let last_key = batch.last().map(|(key, _)| *key);
+    let mut migrated = 0u32;
+
+    for (old_hash, poll_content) in batch {
+        let new_hash = poll_content.content.hash();
+        if new_hash == old_hash {
+            continue;
+        }
+
+        poll_messages()
+            .remove(deps.storage, &old_hash)
+            .change_context(ContractError::StorageError)?;
+
+        if !poll_messages().has(deps.storage, &new_hash) {
+            poll_messages()
+                .save(deps.storage, &new_hash, &poll_content)
+                .change_context(ContractError::StorageError)?;
+        }
+        migrated = migrated.saturating_add(1);
+    }
+
+    Ok(Response::new()
+        .add_attribute("action", "rehash_poll_messages")
+        .add_attribute("scanned", scanned.to_string())
+        .add_attribute("migrated", migrated.to_string())
+        .add_attribute("done", done.to_string())
+        .add_attribute(
+            "last_key",
+            last_key
+                .map(|key| HexBinary::from(key.as_slice()).to_hex())
+                .unwrap_or_default(),
+        ))
 }
