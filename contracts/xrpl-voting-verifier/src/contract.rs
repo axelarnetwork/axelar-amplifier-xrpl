@@ -81,6 +81,9 @@ pub fn execute(
         ExecuteMsg::UpdateAdmin { new_admin_address } => {
             Ok(execute::update_admin(deps, new_admin_address)?)
         }
+        ExecuteMsg::RehashPollMessages { start_after, limit } => {
+            Ok(execute::rehash_poll_messages(deps, start_after, limit)?)
+        }
     }
 }
 
@@ -122,14 +125,14 @@ mod test {
     use assert_ok::assert_ok;
     use axelar_wasm_std::msg_id::HexTxHash;
     use axelar_wasm_std::nonempty::Uint128;
-    use axelar_wasm_std::voting::Vote;
+    use axelar_wasm_std::voting::{PollId, Vote};
     use axelar_wasm_std::{
         err_contains, nonempty, MajorityThreshold, Threshold, VerificationStatus,
     };
     use cosmwasm_std::testing::{
         message_info, mock_dependencies, mock_env, MockApi, MockQuerier, MockStorage,
     };
-    use cosmwasm_std::{from_json, Empty, Fraction, OwnedDeps, Uint64, WasmQuery};
+    use cosmwasm_std::{from_json, Empty, Fraction, HexBinary, OwnedDeps, Uint64, WasmQuery};
     use rand::Rng;
     use router_api::ChainName;
     use service_registry::{
@@ -141,6 +144,7 @@ mod test {
 
     use super::*;
     use crate::msg::MessageStatus;
+    use crate::state::{poll_messages, PollContent};
 
     const SENDER: &str = "sender";
     const ADMIN: &str = "admin";
@@ -1102,5 +1106,318 @@ mod test {
                 );
             }
         });
+    }
+
+    #[test]
+    fn rehash_rekeys_stale_poll_messages_and_is_idempotent() {
+        let mut deps = setup(verifiers(1));
+        let admin = deps.api.addr_make(ADMIN);
+        let msgs = messages(5);
+
+        for (i, msg) in msgs.iter().enumerate() {
+            let stale = [u8::try_from(i).unwrap() + 1; 32];
+            assert_ne!(stale, msg.hash(), "stale key must differ from real hash");
+            // store under a key that is NOT the content hash, as a previous hashing scheme would have
+            poll_messages()
+                .save(
+                    deps.as_mut().storage,
+                    &stale,
+                    &PollContent::new(msg.clone(), PollId::from(Uint64::one()), i),
+                )
+                .unwrap();
+        }
+
+        // an entry already stored under its correct hash must be left untouched
+        let settled = messages(1).pop().unwrap();
+        poll_messages()
+            .save(
+                deps.as_mut().storage,
+                &settled.hash(),
+                &PollContent::new(settled.clone(), PollId::from(Uint64::one()), 99),
+            )
+            .unwrap();
+
+        let res = execute(
+            deps.as_mut(),
+            mock_env(),
+            message_info(&admin, &[]),
+            ExecuteMsg::RehashPollMessages {
+                start_after: None,
+                limit: 100,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            res.attributes
+                .iter()
+                .find(|a| a.key == "scanned")
+                .unwrap()
+                .value,
+            "6"
+        );
+        assert_eq!(
+            res.attributes
+                .iter()
+                .find(|a| a.key == "migrated")
+                .unwrap()
+                .value,
+            "5"
+        );
+        assert_eq!(
+            res.attributes
+                .iter()
+                .find(|a| a.key == "done")
+                .unwrap()
+                .value,
+            "true"
+        );
+
+        // every message is retrievable under its real content hash
+        for msg in msgs.iter().chain(std::iter::once(&settled)) {
+            assert!(poll_messages().has(deps.as_ref().storage, &msg.hash()));
+        }
+        // stale keys are gone
+        for i in 0..5u8 {
+            assert!(!poll_messages().has(deps.as_ref().storage, &[i + 1; 32]));
+        }
+
+        // re-running drains nothing
+        let res = execute(
+            deps.as_mut(),
+            mock_env(),
+            message_info(&admin, &[]),
+            ExecuteMsg::RehashPollMessages {
+                start_after: None,
+                limit: 100,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            res.attributes
+                .iter()
+                .find(|a| a.key == "migrated")
+                .unwrap()
+                .value,
+            "0"
+        );
+        assert_eq!(
+            res.attributes
+                .iter()
+                .find(|a| a.key == "done")
+                .unwrap()
+                .value,
+            "true"
+        );
+    }
+
+    #[test]
+    fn rehash_drains_across_paginated_batches() {
+        let mut deps = setup(verifiers(1));
+        let admin = deps.api.addr_make(ADMIN);
+        let msgs = messages(5);
+        for (i, msg) in msgs.iter().enumerate() {
+            poll_messages()
+                .save(
+                    deps.as_mut().storage,
+                    &[u8::try_from(i).unwrap() + 1; 32],
+                    &PollContent::new(msg.clone(), PollId::from(Uint64::one()), i),
+                )
+                .unwrap();
+        }
+
+        let mut start_after: Option<HexBinary> = None;
+        let mut total_migrated = 0u32;
+        let mut guard = 0;
+        loop {
+            guard += 1;
+            assert!(guard < 100, "pagination did not terminate");
+            let res = execute(
+                deps.as_mut(),
+                mock_env(),
+                message_info(&admin, &[]),
+                ExecuteMsg::RehashPollMessages {
+                    start_after: start_after.clone(),
+                    limit: 2,
+                },
+            )
+            .unwrap();
+            total_migrated += res
+                .attributes
+                .iter()
+                .find(|a| a.key == "migrated")
+                .unwrap()
+                .value
+                .parse::<u32>()
+                .unwrap();
+            if res
+                .attributes
+                .iter()
+                .find(|a| a.key == "done")
+                .unwrap()
+                .value
+                == "true"
+            {
+                break;
+            }
+            let last_key = &res
+                .attributes
+                .iter()
+                .find(|a| a.key == "last_key")
+                .unwrap()
+                .value;
+            start_after = Some(HexBinary::from_hex(last_key).unwrap());
+        }
+
+        assert_eq!(total_migrated, 5);
+        for msg in &msgs {
+            assert!(poll_messages().has(deps.as_ref().storage, &msg.hash()));
+        }
+    }
+
+    #[test]
+    fn rehash_rejects_zero_limit() {
+        let mut deps = setup(verifiers(1));
+        let admin = deps.api.addr_make(ADMIN);
+        let err = execute(
+            deps.as_mut(),
+            mock_env(),
+            message_info(&admin, &[]),
+            ExecuteMsg::RehashPollMessages {
+                start_after: None,
+                limit: 0,
+            },
+        )
+        .unwrap_err();
+        assert!(err_contains!(
+            err.report,
+            ContractError,
+            ContractError::InvalidLimit
+        ));
+    }
+
+    #[test]
+    fn message_verified_under_old_hash_is_reverifiable_and_survives_migration() {
+        let verifiers = verifiers(2);
+        let mut deps = setup(verifiers.clone());
+        let api = deps.api;
+
+        let msg = messages(1).pop().unwrap();
+        let old = msg
+            .old_hash()
+            .expect("interchain transfer message has an old hash");
+        assert_ne!(old, msg.hash(), "old and new hash must differ");
+
+        // --- Round 1: verify the message, reach consensus NotFound ---
+        execute(
+            deps.as_mut(),
+            mock_env(),
+            message_info(&api.addr_make(SENDER), &[]),
+            ExecuteMsg::VerifyMessages(vec![msg.clone()]),
+        )
+        .unwrap();
+        for verifier in &verifiers {
+            execute(
+                deps.as_mut(),
+                mock_env(),
+                message_info(&verifier.address, &[]),
+                ExecuteMsg::Vote {
+                    poll_id: 1u64.into(),
+                    votes: vec![Vote::NotFound],
+                },
+            )
+            .unwrap();
+        }
+        execute(
+            deps.as_mut(),
+            mock_env_expired(),
+            message_info(&api.addr_make(SENDER), &[]),
+            ExecuteMsg::EndPoll {
+                poll_id: 1u64.into(),
+            },
+        )
+        .unwrap();
+
+        // Simulate the pre-change world: this poll was keyed under the OLD hash.
+        // Move the entry from the new hash to the old hash.
+        let content = poll_messages()
+            .may_load(deps.as_ref().storage, &msg.hash())
+            .unwrap()
+            .expect("round-1 poll content under the new hash");
+        poll_messages()
+            .remove(deps.as_mut().storage, &msg.hash())
+            .unwrap();
+        poll_messages()
+            .save(deps.as_mut().storage, &old, &content)
+            .unwrap();
+
+        // Found only via the old-hash fallback -> NotFound.
+        assert_eq!(
+            crate::contract::query::message_status(&deps.storage, &msg, mock_env().block.height)
+                .unwrap(),
+            VerificationStatus::NotFoundOnSourceChain
+        );
+
+        // --- Round 2: re-verify (NotFound is retriable); new poll under the NEW hash, Succeeded ---
+        execute(
+            deps.as_mut(),
+            mock_env(),
+            message_info(&api.addr_make(SENDER), &[]),
+            ExecuteMsg::VerifyMessages(vec![msg.clone()]),
+        )
+        .unwrap();
+        for verifier in &verifiers {
+            execute(
+                deps.as_mut(),
+                mock_env(),
+                message_info(&verifier.address, &[]),
+                ExecuteMsg::Vote {
+                    poll_id: 2u64.into(),
+                    votes: vec![Vote::SucceededOnChain],
+                },
+            )
+            .unwrap();
+        }
+        execute(
+            deps.as_mut(),
+            mock_env_expired(),
+            message_info(&api.addr_make(SENDER), &[]),
+            ExecuteMsg::EndPoll {
+                poll_id: 2u64.into(),
+            },
+        )
+        .unwrap();
+
+        // The new hash is checked first, so it wins over the stale old-hash entry.
+        assert_eq!(
+            crate::contract::query::message_status(&deps.storage, &msg, mock_env().block.height)
+                .unwrap(),
+            VerificationStatus::SucceededOnSourceChain
+        );
+
+        // --- Migration: drop the stale old-hash entry, keep the newer one ---
+        execute(
+            deps.as_mut(),
+            mock_env(),
+            message_info(&api.addr_make(ADMIN), &[]),
+            ExecuteMsg::RehashPollMessages {
+                start_after: None,
+                limit: 100,
+            },
+        )
+        .unwrap();
+
+        assert!(
+            !poll_messages().has(deps.as_ref().storage, &old),
+            "stale old-hash entry must be dropped"
+        );
+        assert!(
+            poll_messages().has(deps.as_ref().storage, &msg.hash()),
+            "new-hash entry must remain"
+        );
+        assert_eq!(
+            crate::contract::query::message_status(&deps.storage, &msg, mock_env().block.height)
+                .unwrap(),
+            VerificationStatus::SucceededOnSourceChain
+        );
     }
 }

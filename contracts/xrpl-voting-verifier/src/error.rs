@@ -26,6 +26,12 @@ pub enum ContractError {
     #[error("invalid source gateway address")]
     InvalidSourceGatewayAddress,
 
+    #[error("invalid start_after cursor, expected a 32-byte hash")]
+    InvalidStartAfter,
+
+    #[error("limit must be greater than zero")]
+    InvalidLimit,
+
     #[error(transparent)]
     NonEmptyError(#[from] nonempty::Error),
 
