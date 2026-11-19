@@ -39,9 +39,17 @@ pub fn message_status(
     message: &XRPLMessage,
     cur_block_height: u64,
 ) -> Result<VerificationStatus, ContractError> {
-    let loaded_poll_content = poll_messages()
+    let mut loaded_poll_content = poll_messages()
         .may_load(storage, &message.hash())
         .change_context(ContractError::StorageError)?;
+
+    if loaded_poll_content.is_none() {
+        if let Some(old_hash) = message.old_hash() {
+            loaded_poll_content = poll_messages()
+                .may_load(storage, &old_hash)
+                .change_context(ContractError::StorageError)?;
+        }
+    }
 
     Ok(verification_status(
         storage,
